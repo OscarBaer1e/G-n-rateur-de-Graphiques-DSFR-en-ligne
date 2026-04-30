@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="fr" data-fr-scheme="system">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Générateur de Graphiques DSFR en ligne</title>
+        <meta
+            name="description"
+            content="Générateur de graphiques DSFR en ligne — création d'indicateurs et de visualisations conformes au Système de Design de l'État Français et au RGAA."
+        />
+        <!--
+            Anti-FOUC : on applique data-fr-theme avant le rendu React pour éviter
+            tout flash de thème incorrect au chargement.
+        -->
+        <script>
+            (function () {
+                try {
+                    var stored = window.localStorage.getItem("gb-scheme") || "system";
+                    var theme = stored;
+                    if (theme === "system") {
+                        theme = window.matchMedia("(prefers-color-scheme: dark)").matches
+                            ? "dark"
+                            : "light";
+                    }
+                    document.documentElement.setAttribute("data-fr-scheme", stored);
+                    document.documentElement.setAttribute("data-fr-theme", theme);
+                } catch (e) {
+                    document.documentElement.setAttribute("data-fr-scheme", "system");
+                    document.documentElement.setAttribute("data-fr-theme", "light");
+                }
+            })();
+        </script>
+    </head>
+    <body>
+        <div id="root"></div>
+        <script type="module" src="/src/main.tsx"></script>
+    </body>
+</html>

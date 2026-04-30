@@ -1,0 +1,27 @@
+{
+  "name": "dsfr-graph-builder-pro",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Outil de création de graphiques DSFR conformes RGAA pour Sites Faciles",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@gouvfr/dsfr": "^1.13.0",
+    "@gouvfr/dsfr-chart": "^2.0.5",
+    "lucide-react": "^0.475.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11"
+  }
+}

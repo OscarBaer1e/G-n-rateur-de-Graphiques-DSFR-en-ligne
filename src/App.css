@@ -1,0 +1,449 @@
+/* filepath: src/App.css
+ * Styles applicatifs additionnels — la base typographique / couleurs vient du DSFR.
+ */
+
+:root {
+    --gb-spacing-xs: 0.5rem;
+    --gb-spacing-sm: 0.75rem;
+    --gb-spacing-md: 1rem;
+    --gb-spacing-lg: 1.5rem;
+    --gb-spacing-xl: 2rem;
+}
+
+.gb-app {
+    min-height: 100vh;
+    background-color: var(--background-default-grey);
+}
+
+.gb-main {
+    padding: var(--gb-spacing-lg) var(--gb-spacing-md);
+    max-width: 1600px;
+    margin: 0 auto;
+}
+
+.gb-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: var(--gb-spacing-lg);
+}
+
+@media (min-width: 1280px) {
+    .gb-grid {
+        grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+    }
+}
+
+.gb-stack {
+    display: flex;
+    flex-direction: column;
+    gap: var(--gb-spacing-lg);
+    min-width: 0;
+}
+
+.gb-card {
+    background-color: var(--background-default-grey);
+    border: 1px solid var(--border-default-grey);
+    border-radius: 4px;
+    padding: var(--gb-spacing-lg);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.gb-card__header {
+    display: flex;
+    align-items: center;
+    gap: var(--gb-spacing-sm);
+    margin-bottom: var(--gb-spacing-md);
+    padding-bottom: var(--gb-spacing-sm);
+    border-bottom: 1px solid var(--border-default-grey);
+}
+
+.gb-card__header h2 {
+    margin: 0;
+    font-size: 1.25rem;
+    color: var(--text-title-grey);
+}
+
+.gb-card__icon {
+    color: var(--text-action-high-blue-france);
+    flex-shrink: 0;
+}
+
+/* ----- Configuration panel ----- */
+
+.gb-config-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--gb-spacing-md);
+}
+
+@media (max-width: 720px) {
+    .gb-config-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.gb-config-grid .fr-input-group,
+.gb-config-grid .fr-select-group {
+    margin-bottom: 0;
+}
+
+/* ----- Data editor ----- */
+
+.gb-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--gb-spacing-xs);
+    margin-bottom: var(--gb-spacing-md);
+}
+
+.gb-grid-wrap {
+    border: 1px solid var(--border-default-grey);
+    border-radius: 4px;
+    overflow: auto;
+    max-height: 480px;
+    background-color: var(--background-default-grey);
+}
+
+.gb-grid-wrap:focus-within {
+    outline: 2px solid var(--border-active-blue-france);
+    outline-offset: -2px;
+}
+
+table.gb-data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+    font-variant-numeric: tabular-nums;
+}
+
+table.gb-data-table thead th {
+    position: sticky;
+    top: 0;
+    background-color: var(--background-alt-blue-france);
+    color: var(--text-title-blue-france);
+    text-align: left;
+    padding: var(--gb-spacing-xs) var(--gb-spacing-sm);
+    border-bottom: 2px solid var(--border-default-blue-france);
+    z-index: 1;
+    white-space: nowrap;
+}
+
+table.gb-data-table thead th .gb-th-content {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+table.gb-data-table thead th input.gb-col-name {
+    background: transparent;
+    border: 1px dashed transparent;
+    color: inherit;
+    font-weight: 700;
+    font-size: 0.875rem;
+    padding: 0.125rem 0.25rem;
+    border-radius: 2px;
+    width: 100%;
+    min-width: 80px;
+}
+
+table.gb-data-table thead th input.gb-col-name:hover,
+table.gb-data-table thead th input.gb-col-name:focus {
+    border-color: var(--border-default-blue-france);
+    background: var(--background-default-grey);
+    outline: none;
+}
+
+table.gb-data-table tbody td {
+    border-bottom: 1px solid var(--border-default-grey);
+    padding: 0;
+}
+
+table.gb-data-table tbody td input.gb-cell-input {
+    width: 100%;
+    border: none;
+    background: transparent;
+    padding: var(--gb-spacing-xs) var(--gb-spacing-sm);
+    font: inherit;
+    color: var(--text-default-grey);
+    box-sizing: border-box;
+}
+
+table.gb-data-table tbody td input.gb-cell-input:focus {
+    outline: 2px solid var(--border-active-blue-france);
+    outline-offset: -2px;
+    background: var(--background-alt-blue-france);
+}
+
+table.gb-data-table tbody tr:hover td {
+    background-color: var(--background-alt-grey);
+}
+
+th.gb-row-header,
+td.gb-row-header {
+    width: 56px;
+    text-align: center;
+    color: var(--text-mention-grey);
+    background: var(--background-alt-grey);
+    border-right: 1px solid var(--border-default-grey);
+    font-size: 0.75rem;
+}
+
+th.gb-col-actions,
+td.gb-col-actions {
+    width: 40px;
+    text-align: center;
+    background: var(--background-alt-grey);
+    border-left: 1px solid var(--border-default-grey);
+}
+
+button.gb-icon-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-default-grey);
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 2px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+button.gb-icon-btn:hover {
+    background-color: var(--background-action-low-blue-france);
+    color: var(--text-action-high-blue-france);
+}
+
+button.gb-icon-btn:focus {
+    outline: 2px solid var(--border-active-blue-france);
+    outline-offset: 1px;
+}
+
+.gb-grid-info {
+    margin-top: var(--gb-spacing-sm);
+    color: var(--text-mention-grey);
+    font-size: 0.875rem;
+}
+
+/* ----- Preview ----- */
+
+.gb-preview-host {
+    background: var(--background-alt-grey);
+    border-radius: 4px;
+    padding: var(--gb-spacing-lg);
+    min-height: 380px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.gb-preview-host > * {
+    width: 100%;
+    max-width: 800px;
+}
+
+.gb-preview-empty {
+    color: var(--text-mention-grey);
+    text-align: center;
+}
+
+/* ----- Export ----- */
+
+.gb-export-textarea {
+    width: 100%;
+    min-height: 280px;
+    font-family: var(--ff-mono, "SFMono-Regular", Menlo, Monaco, Consolas, monospace);
+    font-size: 0.8125rem;
+    background: var(--background-contrast-grey);
+    color: var(--text-default-grey);
+    padding: var(--gb-spacing-md);
+    border: 1px solid var(--border-default-grey);
+    border-radius: 4px;
+    resize: vertical;
+    white-space: pre;
+    overflow: auto;
+}
+
+.gb-export-actions {
+    display: flex;
+    gap: var(--gb-spacing-sm);
+    margin-top: var(--gb-spacing-sm);
+    flex-wrap: wrap;
+}
+
+.gb-paste-zone {
+    border: 1px dashed var(--border-default-blue-france);
+    background-color: var(--background-alt-blue-france);
+    color: var(--text-action-high-blue-france);
+    padding: var(--gb-spacing-sm) var(--gb-spacing-md);
+    border-radius: 4px;
+    margin-bottom: var(--gb-spacing-md);
+    font-size: 0.875rem;
+}
+
+.gb-flex {
+    display: flex;
+    align-items: center;
+    gap: var(--gb-spacing-sm);
+    flex-wrap: wrap;
+}
+
+.gb-spacer {
+    flex: 1 1 auto;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Theme switcher (dans le header)                                            */
+/* -------------------------------------------------------------------------- */
+
+.gb-header__tools {
+    display: flex;
+    align-items: center;
+    gap: var(--gb-spacing-sm);
+    margin-left: auto;
+    padding: var(--gb-spacing-sm) 0;
+}
+
+.gb-theme-switcher {
+    display: inline-flex;
+    border: 1px solid var(--border-default-grey);
+    border-radius: 4px;
+    background: var(--background-default-grey);
+    padding: 2px;
+    gap: 2px;
+}
+
+.gb-theme-switcher__btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.375rem 0.625rem;
+    background: transparent;
+    border: none;
+    border-radius: 3px;
+    color: var(--text-default-grey);
+    font: inherit;
+    font-size: 0.8125rem;
+    cursor: pointer;
+    transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.gb-theme-switcher__btn:hover {
+    background-color: var(--background-alt-blue-france);
+    color: var(--text-action-high-blue-france);
+}
+
+.gb-theme-switcher__btn:focus-visible {
+    outline: 2px solid var(--border-active-blue-france);
+    outline-offset: 1px;
+}
+
+.gb-theme-switcher__btn.is-active {
+    background-color: var(--background-action-high-blue-france);
+    color: var(--background-default-grey);
+}
+
+.gb-theme-switcher__btn.is-active:hover {
+    background-color: var(--background-action-high-blue-france-hover);
+    color: var(--background-default-grey);
+}
+
+.gb-theme-switcher__label {
+    display: inline-block;
+}
+
+@media (max-width: 720px) {
+    .gb-theme-switcher__label {
+        display: none;
+    }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Adaptations dataviz : remontée du fond DSFR sur les hôtes de chart         */
+/* (le DSFR Chart bascule lui-même clair / sombre via data-fr-theme).         */
+/* -------------------------------------------------------------------------- */
+
+.gb-preview-host {
+    color: var(--text-default-grey);
+}
+
+[data-fr-theme="dark"] .gb-export-textarea {
+    background: var(--background-alt-grey);
+}
+
+/* Astuce : la jauge officielle s'affiche centrée et compacte. */
+.gb-preview-host[data-chart-type="gauge"] > * {
+    max-width: 460px;
+    margin: 0 auto;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Toggle Axe G / Axe D dans l'en-tête de colonne                              */
+/* -------------------------------------------------------------------------- */
+
+button.gb-axis-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.125rem 0.375rem;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    line-height: 1.2;
+    border: 1px solid var(--border-default-grey);
+    border-radius: 999px;
+    background: var(--background-default-grey);
+    color: var(--text-default-grey);
+    cursor: pointer;
+    transition: background-color 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+    white-space: nowrap;
+}
+
+button.gb-axis-toggle:hover {
+    background-color: var(--background-alt-blue-france);
+    color: var(--text-action-high-blue-france);
+    border-color: var(--border-default-blue-france);
+}
+
+button.gb-axis-toggle:focus-visible {
+    outline: 2px solid var(--border-active-blue-france);
+    outline-offset: 1px;
+}
+
+button.gb-axis-toggle.gb-axis-toggle--right {
+    background-color: var(--background-action-high-blue-france);
+    border-color: var(--background-action-high-blue-france);
+    color: var(--background-default-grey);
+}
+
+button.gb-axis-toggle.gb-axis-toggle--right:hover {
+    background-color: var(--background-action-high-blue-france-hover);
+    border-color: var(--background-action-high-blue-france-hover);
+    color: var(--background-default-grey);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Drapeaux d'information au-dessus du chart (year / dual-axis)                */
+/* -------------------------------------------------------------------------- */
+
+.gb-preview-flags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.375rem;
+    margin-bottom: var(--gb-spacing-md);
+}
+
+.gb-flag {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    line-height: 1.3;
+    border: 1px solid transparent;
+}
+
+.gb-flag--info {
+    background-color: var(--background-alt-blue-france);
+    color: var(--text-action-high-blue-france);
+    border-color: var(--border-default-blue-france);
+}
