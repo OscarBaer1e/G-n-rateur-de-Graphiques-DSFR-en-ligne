@@ -55,6 +55,8 @@ type GaugeChartAttrs = DsfrChartBaseAttrs & {
     init?: string | number;
     /** Valeur cible de la jauge (obligatoire). */
     target?: string | number;
+    /** Libellé légende / infobulle (JSON tableau d’un libellé), aligné sur les autres graphiques. */
+    name?: string;
 };
 
 /**

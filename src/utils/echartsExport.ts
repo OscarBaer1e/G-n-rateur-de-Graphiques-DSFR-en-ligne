@@ -101,6 +101,7 @@ const baseTooltipAxis = {
 };
 
 const baseLegend = {
+    show: true,
     bottom: 0,
     textStyle: {
         fontFamily: "Marianne, sans-serif",
@@ -125,7 +126,11 @@ function buildOption(state: ChartState, computed: ChartAttributes): Record<strin
         const v = Number(computed.attrs.value ?? state.gaugeInit);
         const min = state.gaugeInit;
         const max = state.gaugeTarget;
-        const name = computed.series[0]?.name ? decorateName(computed.series[0].name, state.unit) : "Valeur";
+        const name = computed.series[0]?.name
+            ? decorateName(computed.series[0].name, state.unit)
+            : state.unit.trim()
+            ? `Valeur (${state.unit.trim()})`
+            : "Valeur";
         return {
             color: colors,
             tooltip: {
@@ -138,7 +143,7 @@ function buildOption(state: ChartState, computed: ChartAttributes): Record<strin
                 },
                 borderWidth: 0
             },
-            legend: { show: false },
+            legend: { ...baseLegend, data: [name] },
             series: [
                 {
                     type: "gauge",
@@ -221,6 +226,7 @@ function buildOption(state: ChartState, computed: ChartAttributes): Record<strin
         }));
         const radius =
             state.chartType === "donut" ? (["45%", "70%"] as const) : ("70%" as const);
+        const legendNames = data.map(d => d.name);
         return {
             color: colors,
             tooltip: {
@@ -233,7 +239,11 @@ function buildOption(state: ChartState, computed: ChartAttributes): Record<strin
                 },
                 borderWidth: 0
             },
-            legend: { ...baseLegend, orient: "horizontal" },
+            legend: {
+                ...baseLegend,
+                orient: "horizontal",
+                data: legendNames.length > 0 ? legendNames : [""]
+            },
             series: [
                 {
                     type: "pie",
