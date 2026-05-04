@@ -5,6 +5,8 @@
   "type": "module",
   "description": "Outil de création de graphiques DSFR conformes RGAA pour Sites Faciles",
   "scripts": {
+    "sync-embed-versions": "node scripts/sync-embed-cdn-versions.mjs",
+    "prebuild": "node scripts/sync-embed-cdn-versions.mjs",
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",

@@ -56,10 +56,11 @@ export function ExportPanel({ state }: Props): JSX.Element {
             </div>
 
             <p className="fr-text--sm" style={{ color: "var(--text-mention-grey)" }}>
-                Deux blocs : ressources (UMD officiel <code>DSFRChart.umd.cjs</code>, sans{" "}
-                <code>type=&quot;module&quot;</code>) puis le <code>figure</code> avec le web
-                component, le tableau <code>fr-sr-only</code> RGAA et les instructions pour
-                remplacer <code>%%MEDIA_BASE%%</code> et héberger les fichiers npm.
+                Un seul collage : styles et scripts officiels (jsDelivr, versions alignées sur{" "}
+                <code>package-lock.json</code> à chaque <code>npm run build</code>) puis le{" "}
+                <code>figure</code> avec web component
+                et tableau <code>fr-sr-only</code>. Aucun fichier à héberger ; la page doit pouvoir
+                charger des ressources externes.
             </p>
 
             <label htmlFor="gb-export-output" className="fr-sr-only">
