@@ -18,6 +18,15 @@ import {
     type ChartTypeMeta,
     type DataColumn
 } from "../types";
+import {
+    EXPORT_CHART_HOST_MAX_HEIGHT_PX,
+    EXPORT_CHART_HOST_MIN_HEIGHT_PX,
+    EXPORT_CHART_MAX_WIDTH_PX,
+    exportChartLayout,
+    exportLegendOptions,
+    exportPaletteColors,
+    exportTooltipOptions
+} from "./exportChartStyle";
 
 /* -------------------------------------------------------------------------- */
 /* Helpers numériques + détection années                                       */
@@ -456,16 +465,6 @@ ${indent(bodyRows, 4)}
 </table>`;
 }
 
-/** Couleurs proches du bleu DSFR et variantes pour séries multiples (export CMS). */
-const SF_CHART_COLORS = [
-    "#000091",
-    "#009081",
-    "#E10110",
-    "#7B4B9A",
-    "#465F9D",
-    "#A558A0"
-] as const;
-
 function slugifyCanvasIdPart(title: string): string {
     return title
         .toLowerCase()
@@ -494,6 +493,21 @@ function chartLabelsJsonFromAttrs(computed: ChartAttributes, fallbackLabelsJson:
         if (Array.isArray(parsed) && parsed.length > 0) {
             const first = parsed[0];
             if (Array.isArray(first)) return JSON.stringify(first);
+        }
+    } catch {
+        /* ignore */
+    }
+    return fallbackLabelsJson;
+}
+
+/** Libellés secteurs camembert / donut (alignés sur `attrs.name` du preview). */
+function pieLabelsJsonFromAttrs(computed: ChartAttributes, fallbackLabelsJson: string): string {
+    const raw = computed.attrs.name;
+    if (!raw) return fallbackLabelsJson;
+    try {
+        const parsed = JSON.parse(raw) as unknown;
+        if (Array.isArray(parsed) && parsed.length > 0 && parsed.every(x => typeof x === "string")) {
+            return JSON.stringify(parsed);
         }
     } catch {
         /* ignore */
@@ -530,10 +544,12 @@ export function buildExportSnippet(state: ChartState, computed: ChartAttributes)
     const chartScriptBody = buildSitesFacilesChartJsBody(state, computed, canvasId, labelsJson);
 
     return `<!-- Générateur de Graphiques DSFR en ligne — bloc Sites Faciles (Chart.js + canvas, compatible CMS) -->
-<div class="fr-container" style="background: #fff; padding: 20px; border: 1px solid #e5e5e5; font-family: 'Marianne', arial, sans-serif;">
+<div class="fr-container" style="background: #fff; padding: 20px; border: 1px solid #e5e5e5; font-family: 'Marianne', arial, sans-serif; box-sizing: border-box;">
   <figure role="group" aria-label="${escapeHtml(state.title || "Graphique")}">${titleBlock}${descriptionBlock}
-    <div style="position: relative; height: 400px; width: 100%;">
-      <canvas id="${escapeHtml(canvasId)}" aria-label="${escapeHtml(state.title || "Graphique")}"></canvas>
+    <div style="background: #f6f6f6; border-radius: 4px; padding: 1.5rem; max-width: ${EXPORT_CHART_MAX_WIDTH_PX}px; margin: 0 auto; box-sizing: border-box;">
+      <div style="position: relative; width: 100%; min-height: ${EXPORT_CHART_HOST_MIN_HEIGHT_PX}px; height: clamp(${EXPORT_CHART_HOST_MIN_HEIGHT_PX}px, 42vh, ${EXPORT_CHART_HOST_MAX_HEIGHT_PX}px);">
+        <canvas id="${escapeHtml(canvasId)}" aria-label="${escapeHtml(state.title || "Graphique")}"></canvas>
+      </div>
     </div>${sourceBlock}
 ${srTableIndented}
   </figure>
@@ -544,6 +560,97 @@ ${srTableIndented}
 ${chartScriptBody}
 </script>
 `;
+}
+
+/** Scatter : une série par colonne, points alignés sur `attrs.x` / `attrs.y`. */
+function buildScatterSitesFacilesScript(
+    state: ChartState,
+    computed: ChartAttributes,
+    canvasId: string,
+    unit: string
+): string {
+    const series = computed.series;
+    const colors = exportPaletteColors(state.palette, Math.max(series.length, 1));
+    let xPer: unknown[][] = [];
+    let yPer: unknown[][] = [];
+    try {
+        xPer = JSON.parse(computed.attrs.x ?? "[]") as unknown[][];
+        yPer = JSON.parse(computed.attrs.y ?? "[]") as unknown[][];
+    } catch {
+        xPer = [];
+        yPer = [];
+    }
+
+    const datasets = series.map((s, i) => {
+        const xs = (Array.isArray(xPer[i]) ? xPer[i] : xPer[0]) ?? [];
+        const ys = (Array.isArray(yPer[i]) ? yPer[i] : []) as unknown[];
+        const pts = (xs as unknown[]).map((x, j) => {
+            let xv: number;
+            const n = toNumber(typeof x === "string" ? x : String(x));
+            if (n !== null) xv = n;
+            else if (typeof x === "number" && Number.isFinite(x)) xv = x;
+            else xv = j;
+            const rawY = (ys as unknown[])[j];
+            const yv =
+                typeof rawY === "number" && Number.isFinite(rawY) ? rawY : Number(rawY) || 0;
+            return { x: xv, y: yv };
+        });
+        const c = colors[i % colors.length]!;
+        return {
+            label: decorateName(s.name, unit),
+            data: pts,
+            backgroundColor: c,
+            borderColor: c,
+            pointRadius: 5,
+            showLine: state.showLine
+        };
+    });
+
+    const showLegend = series.length > 1;
+    const scatterOptions: Record<string, unknown> = {
+        responsive: true,
+        maintainAspectRatio: false,
+        layout: exportChartLayout(showLegend),
+        plugins: {
+            legend: exportLegendOptions(showLegend),
+            tooltip: exportTooltipOptions()
+        },
+        scales: {
+            x: {
+                type: "linear" as const,
+                ticks: { font: { family: "Marianne" } },
+                grid: { color: "#e5e5e5" }
+            },
+            y: {
+                beginAtZero: true,
+                title: unit
+                    ? {
+                          display: true,
+                          text: unit,
+                          font: { weight: "bold" as const, family: "Marianne" }
+                      }
+                    : { display: false },
+                ticks: { font: { family: "Marianne" } },
+                grid: { color: "#e5e5e5" }
+            }
+        }
+    };
+
+    const scatterData = { datasets };
+
+    return `(function() {
+  var initChart = function() {
+    var canvas = document.getElementById(${JSON.stringify(canvasId)});
+    if (!canvas || typeof Chart === "undefined") return;
+    new Chart(canvas, {
+      type: "scatter",
+      data: ${JSON.stringify(scatterData)},
+      options: ${JSON.stringify(scatterOptions)}
+    });
+  };
+  if (document.readyState === "complete") initChart();
+  else window.addEventListener("load", initChart);
+})();`;
 }
 
 /**
@@ -566,31 +673,48 @@ function buildSitesFacilesChartJsBody(
         const target = Number(computed.attrs.target) || 100;
         const maxY = Math.max(target, val, init, 1);
         const labelGauge = state.title.trim() || "Indicateur";
+        const barHue = exportPaletteColors(state.palette, 1)[0] ?? "#000091";
+        const gaugeData = {
+            labels: [labelGauge],
+            datasets: [
+                {
+                    label: unit ? `Valeur (${unit})` : "Valeur",
+                    data: [val],
+                    backgroundColor: barHue,
+                    hoverBackgroundColor: "#1212ff",
+                    barThickness: 48
+                }
+            ]
+        };
+        const gaugeOptions = {
+            responsive: true,
+            maintainAspectRatio: false,
+            layout: exportChartLayout(false),
+            plugins: {
+                legend: exportLegendOptions(false),
+                tooltip: exportTooltipOptions()
+            },
+            scales: {
+                x: {
+                    grid: { display: false },
+                    ticks: { font: { family: "Marianne", size: 12 }, color: "#161616" }
+                },
+                y: {
+                    beginAtZero: true,
+                    max: maxY,
+                    ticks: { font: { family: "Marianne" } },
+                    grid: { color: "#e5e5e5" }
+                }
+            }
+        };
         return `(function() {
   var initChart = function() {
     var canvas = document.getElementById(${JSON.stringify(canvasId)});
     if (!canvas || typeof Chart === "undefined") return;
     new Chart(canvas, {
       type: "bar",
-      data: {
-        labels: [${JSON.stringify(labelGauge)}],
-        datasets: [{
-          label: ${JSON.stringify(unit ? "Valeur (" + unit + ")" : "Valeur")},
-          data: [${val}],
-          backgroundColor: "#000091",
-          hoverBackgroundColor: "#1212ff",
-          barThickness: 48
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: { legend: { display: true } },
-        scales: {
-          x: { grid: { display: false }, ticks: { font: { family: "Marianne", size: 12 }, color: "#161616" } },
-          y: { beginAtZero: true, max: ${maxY}, ticks: { font: { family: "Marianne" } }, grid: { color: "#e5e5e5" } }
-        }
-      }
+      data: ${JSON.stringify(gaugeData)},
+      options: ${JSON.stringify(gaugeOptions)}
     });
   };
   if (document.readyState === "complete") initChart();
@@ -601,72 +725,101 @@ function buildSitesFacilesChartJsBody(
     if (computed.dualAxisActive) {
         const yBar = parseJsonNumberArray(computed.attrs["y-bar"]);
         const yLine = parseJsonNumberArray(computed.attrs["y-line"]);
-        const xLabelsJson = computed.attrs.x ?? labelsJson;
+        let xLabels: unknown[];
+        try {
+            const xLabelsParsed = JSON.parse(computed.attrs.x ?? labelsJson) as unknown;
+            if (Array.isArray(xLabelsParsed) && xLabelsParsed.length > 0 && !Array.isArray(xLabelsParsed[0])) {
+                xLabels = xLabelsParsed;
+            } else if (
+                Array.isArray(xLabelsParsed) &&
+                xLabelsParsed.length > 0 &&
+                Array.isArray((xLabelsParsed as unknown[])[0])
+            ) {
+                xLabels = (xLabelsParsed as unknown[][])[0]!;
+            } else {
+                xLabels = JSON.parse(labelsJson) as unknown[];
+            }
+        } catch {
+            xLabels = JSON.parse(labelsJson) as unknown[];
+        }
         const dsBar = computed.series.find(s => s.axis === "left");
         const dsLine = computed.series.find(s => s.axis === "right");
         const nameBar = dsBar ? decorateName(dsBar.name, unit) : "Barres";
         const nameLine = dsLine ? decorateName(dsLine.name, unitSec || unit) : "Ligne";
+        const cols = exportPaletteColors(state.palette, 2);
+        const barColor = cols[0] ?? "#000091";
+        const lineColor = "#E1000F";
+        const dualData = {
+            labels: xLabels,
+            datasets: [
+                {
+                    type: "bar" as const,
+                    label: nameBar,
+                    data: yBar,
+                    backgroundColor: barColor,
+                    hoverBackgroundColor: "#1212ff",
+                    yAxisID: "y",
+                    order: 2
+                },
+                {
+                    type: "line" as const,
+                    label: nameLine,
+                    data: yLine,
+                    borderColor: lineColor,
+                    backgroundColor: "rgba(225, 0, 15, 0.12)",
+                    yAxisID: "y1",
+                    tension: 0.2,
+                    order: 1,
+                    fill: false
+                }
+            ]
+        };
+        const dualOptions = {
+            responsive: true,
+            maintainAspectRatio: false,
+            layout: exportChartLayout(true),
+            interaction: { mode: "index" as const, intersect: false },
+            plugins: {
+                legend: exportLegendOptions(true),
+                tooltip: exportTooltipOptions()
+            },
+            scales: {
+                x: {
+                    grid: { display: false },
+                    ticks: { font: { family: "Marianne", size: 12 }, color: "#161616" }
+                },
+                y: {
+                    type: "linear" as const,
+                    position: "left" as const,
+                    title: {
+                        display: true,
+                        text: unit || "Axe gauche",
+                        font: { family: "Marianne", weight: "bold" as const }
+                    },
+                    grid: { color: "#e5e5e5" },
+                    beginAtZero: true
+                },
+                y1: {
+                    type: "linear" as const,
+                    position: "right" as const,
+                    title: {
+                        display: true,
+                        text: unitSec || "Axe droit",
+                        font: { family: "Marianne", weight: "bold" as const }
+                    },
+                    grid: { drawOnChartArea: false },
+                    beginAtZero: true
+                }
+            }
+        };
         return `(function() {
   var initChart = function() {
     var canvas = document.getElementById(${JSON.stringify(canvasId)});
     if (!canvas || typeof Chart === "undefined") return;
     new Chart(canvas, {
       type: "bar",
-      data: {
-        labels: ${xLabelsJson},
-        datasets: [
-          {
-            type: "bar",
-            label: ${JSON.stringify(nameBar)},
-            data: ${JSON.stringify(yBar)},
-            backgroundColor: "#000091",
-            hoverBackgroundColor: "#1212ff",
-            yAxisID: "y",
-            order: 2
-          },
-          {
-            type: "line",
-            label: ${JSON.stringify(nameLine)},
-            data: ${JSON.stringify(yLine)},
-            borderColor: "#E10110",
-            backgroundColor: "rgba(225,1,16,0.15)",
-            yAxisID: "y1",
-            tension: 0.2,
-            order: 1
-          }
-        ]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        interaction: { mode: "index", intersect: false },
-        plugins: {
-          legend: { display: true, labels: { font: { family: "Marianne", size: 12 } } },
-          tooltip: {
-            backgroundColor: "rgba(22, 22, 22, 0.9)",
-            padding: 12,
-            titleFont: { size: 14, weight: "bold", family: "Marianne" },
-            bodyFont: { size: 14, family: "Marianne" }
-          }
-        },
-        scales: {
-          x: { grid: { display: false }, ticks: { font: { family: "Marianne", size: 12 }, color: "#161616" } },
-          y: {
-            type: "linear",
-            position: "left",
-            title: { display: true, text: ${JSON.stringify(unit || "Axe gauche")}, font: { family: "Marianne", weight: "bold" } },
-            grid: { color: "#e5e5e5" },
-            beginAtZero: true
-          },
-          y1: {
-            type: "linear",
-            position: "right",
-            title: { display: true, text: ${JSON.stringify(unitSec || "Axe droit")}, font: { family: "Marianne", weight: "bold" } },
-            grid: { drawOnChartArea: false },
-            beginAtZero: true
-          }
-        }
-      }
+      data: ${JSON.stringify(dualData)},
+      options: ${JSON.stringify(dualOptions)}
     });
   };
   if (document.readyState === "complete") initChart();
@@ -676,36 +829,62 @@ function buildSitesFacilesChartJsBody(
 
     if (type === "pie" || type === "donut") {
         const vals = (computed.series[0]?.values ?? []).map(v => (v === null ? 0 : v));
-        const cutout = type === "donut" ? "'55%'" : "0";
+        const sectorLabelsJson = pieLabelsJsonFromAttrs(computed, labelsJson);
+        let sectorLabels: string[] = [];
+        try {
+            const p = JSON.parse(sectorLabelsJson) as unknown;
+            if (Array.isArray(p) && p.every(x => typeof x === "string")) sectorLabels = p as string[];
+        } catch {
+            sectorLabels = [];
+        }
+        if (sectorLabels.length === 0) {
+            try {
+                const p = JSON.parse(labelsJson) as unknown;
+                if (Array.isArray(p) && p.every(x => typeof x === "string")) sectorLabels = p as string[];
+            } catch {
+                sectorLabels = [];
+            }
+        }
+        const n = Math.max(vals.length, sectorLabels.length, 1);
+        const sliceColors = exportPaletteColors(state.palette, n);
+        while (sectorLabels.length < vals.length) {
+            sectorLabels.push(`Secteur ${sectorLabels.length + 1}`);
+        }
+        const pieLabel =
+            computed.series[0] != null
+                ? decorateName(computed.series[0].name, state.unit.trim())
+                : state.unit
+                  ? `Valeur (${state.unit})`
+                  : "Valeur";
+        const pieData = {
+            labels: sectorLabels.slice(0, vals.length),
+            datasets: [
+                {
+                    label: pieLabel,
+                    data: vals,
+                    backgroundColor: sliceColors.slice(0, vals.length),
+                    hoverOffset: 6
+                }
+            ]
+        };
+        const pieOptions = {
+            responsive: true,
+            maintainAspectRatio: false,
+            cutout: type === "donut" ? "55%" : 0,
+            layout: exportChartLayout(vals.length > 1),
+            plugins: {
+                legend: exportLegendOptions(vals.length > 1),
+                tooltip: exportTooltipOptions()
+            }
+        };
         return `(function() {
   var initChart = function() {
     var canvas = document.getElementById(${JSON.stringify(canvasId)});
     if (!canvas || typeof Chart === "undefined") return;
     new Chart(canvas, {
       type: "doughnut",
-      data: {
-        labels: ${labelsJson},
-        datasets: [{
-          label: ${JSON.stringify(state.unit ? "Valeur (" + state.unit + ")" : "Valeur")},
-          data: ${JSON.stringify(vals)},
-          backgroundColor: ${JSON.stringify([...SF_CHART_COLORS])},
-          hoverOffset: 6
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        cutout: ${cutout},
-        plugins: {
-          legend: { position: "right", labels: { font: { family: "Marianne", size: 12 } } },
-          tooltip: {
-            backgroundColor: "rgba(22, 22, 22, 0.9)",
-            padding: 12,
-            titleFont: { size: 14, weight: "bold", family: "Marianne" },
-            bodyFont: { size: 14, family: "Marianne" }
-          }
-        }
-      }
+      data: ${JSON.stringify(pieData)},
+      options: ${JSON.stringify(pieOptions)}
     });
   };
   if (document.readyState === "complete") initChart();
@@ -714,61 +893,57 @@ function buildSitesFacilesChartJsBody(
     }
 
     if (type === "scatter") {
-        const xs = computed.labels.map((lab, i) => {
-            const n = toNumber(lab);
-            return n === null ? i : n;
-        });
-        const ys = (computed.series[0]?.values ?? []).map(v => (v === null ? 0 : v));
-        const pts = xs.map((x, i) => ({ x, y: ys[i] ?? 0 }));
-        return `(function() {
-  var initChart = function() {
-    var canvas = document.getElementById(${JSON.stringify(canvasId)});
-    if (!canvas || typeof Chart === "undefined") return;
-    new Chart(canvas, {
-      type: "scatter",
-      data: {
-        datasets: [{
-          label: ${JSON.stringify(computed.series[0]?.name ?? "Série")},
-          data: ${JSON.stringify(pts)},
-          backgroundColor: "#000091",
-          borderColor: "#000091",
-          pointRadius: 5
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: { legend: { display: true } },
-        scales: {
-          x: { type: "linear", ticks: { font: { family: "Marianne" } }, grid: { color: "#e5e5e5" } },
-          y: { beginAtZero: true, title: { display: ${unit ? "true" : "false"}, text: ${JSON.stringify(unit)} }, ticks: { font: { family: "Marianne" } }, grid: { color: "#e5e5e5" } }
-        }
-      }
-    });
-  };
-  if (document.readyState === "complete") initChart();
-  else window.addEventListener("load", initChart);
-})();`;
+        return buildScatterSitesFacilesScript(state, computed, canvasId, unit);
     }
 
     if (type === "radar") {
         const vals = (computed.series[0]?.values ?? []).map(v => (v === null ? 0 : v));
+        const lab = computed.series[0]
+            ? decorateName(computed.series[0].name, unit)
+            : "Série";
+        const c0 = exportPaletteColors(state.palette, 1)[0] ?? "#000091";
+        const border = c0;
+        const fill =
+            c0.startsWith("#") && c0.length === 7
+                ? `${c0}33`
+                : c0.startsWith("#") && c0.length === 9
+                  ? c0
+                  : "rgba(0,0,145,0.2)";
+        let radarLabs: string[];
+        try {
+            radarLabs = JSON.parse(labelsJson) as string[];
+        } catch {
+            radarLabs = computed.labels;
+        }
+        const radarData = {
+            labels: radarLabs,
+            datasets: [{ label: lab, data: vals, borderColor: border, backgroundColor: fill }]
+        };
+        const radarOptions = {
+            responsive: true,
+            maintainAspectRatio: false,
+            layout: exportChartLayout(false),
+            plugins: {
+                legend: exportLegendOptions(false),
+                tooltip: exportTooltipOptions()
+            },
+            scales: {
+                r: {
+                    beginAtZero: true,
+                    ticks: { font: { family: "Marianne" } },
+                    grid: { color: "#e5e5e5" },
+                    pointLabels: { font: { family: "Marianne", size: 11 } }
+                }
+            }
+        };
         return `(function() {
   var initChart = function() {
     var canvas = document.getElementById(${JSON.stringify(canvasId)});
     if (!canvas || typeof Chart === "undefined") return;
     new Chart(canvas, {
       type: "radar",
-      data: {
-        labels: ${labelsJson},
-        datasets: [{
-          label: ${JSON.stringify(computed.series[0]?.name ?? "Série")},
-          data: ${JSON.stringify(vals)},
-          borderColor: "#000091",
-          backgroundColor: "rgba(0,0,145,0.2)"
-        }]
-      },
-      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: true } } }
+      data: ${JSON.stringify(radarData)},
+      options: ${JSON.stringify(radarOptions)}
     });
   };
   if (document.readyState === "complete") initChart();
@@ -777,10 +952,11 @@ function buildSitesFacilesChartJsBody(
     }
 
     const barLineLabelsJson = chartLabelsJsonFromAttrs(computed, labelsJson);
-    return buildBarLineExportScript(type, computed, canvasId, barLineLabelsJson, unit);
+    return buildBarLineExportScript(state, type, computed, canvasId, barLineLabelsJson, unit);
 }
 
 function buildBarLineExportScript(
+    state: ChartState,
     type: ChartType,
     computed: ChartAttributes,
     canvasId: string,
@@ -790,15 +966,23 @@ function buildBarLineExportScript(
     const stacked = type === "bar-stacked";
     const horizontal = type === "bar-horizontal";
     const isLine = type === "line";
+    const colors = exportPaletteColors(state.palette, Math.max(computed.series.length, 1));
+
+    let xLabels: unknown[];
+    try {
+        xLabels = JSON.parse(labelsJson) as unknown[];
+    } catch {
+        xLabels = [];
+    }
 
     const datasets = computed.series.map((s, i) => {
         const data = s.values.map(v => (v === null ? 0 : v));
-        const color = SF_CHART_COLORS[i % SF_CHART_COLORS.length]!;
+        const color = colors[i % colors.length]!;
         const base: Record<string, unknown> = {
-            label: s.name,
+            label: decorateName(s.name, unit),
             data,
             backgroundColor: isLine ? "transparent" : color,
-            borderColor: isLine ? color : color,
+            borderColor: color,
             borderWidth: isLine ? 2 : 0,
             fill: false,
             tension: isLine ? 0.2 : 0
@@ -812,16 +996,83 @@ function buildBarLineExportScript(
     });
 
     const chartType = isLine ? "line" : "bar";
-    const indexAxis = horizontal ? ", indexAxis: 'y'" : "";
-    const stackedOpts = stacked
-        ? ", scales: { x: { stacked: true, grid: { display: false }, ticks: { font: { family: 'Marianne', size: 12 }, color: '#161616' } }, y: { stacked: true, beginAtZero: true, grid: { color: '#e5e5e5' }, ticks: { font: { family: 'Marianne' } } } }"
-        : ", scales: { x: { grid: { display: false }, ticks: { font: { family: 'Marianne', size: 12 }, color: '#161616' } }, y: { beginAtZero: true, title: { display: " +
-          (unit ? "true" : "false") +
-          ", text: " +
-          JSON.stringify(unit) +
-          ", font: { weight: 'bold', family: 'Marianne' } }, grid: { color: '#e5e5e5' }, ticks: { font: { family: 'Marianne' } } } }";
+    const showLegend = computed.series.length > 1;
 
-    const datasetsJson = JSON.stringify(datasets);
+    const titleY = unit
+        ? { display: true, text: unit, font: { weight: "bold" as const, family: "Marianne" } }
+        : { display: false };
+
+    let scales: Record<string, unknown>;
+    if (horizontal && stacked) {
+        scales = {
+            x: {
+                stacked: true,
+                beginAtZero: true,
+                title: titleY,
+                grid: { color: "#e5e5e5" },
+                ticks: { font: { family: "Marianne" } }
+            },
+            y: {
+                stacked: true,
+                grid: { display: false },
+                ticks: { font: { family: "Marianne", size: 12 }, color: "#161616" }
+            }
+        };
+    } else if (horizontal) {
+        scales = {
+            y: {
+                grid: { display: false },
+                ticks: { font: { family: "Marianne", size: 12 }, color: "#161616" }
+            },
+            x: {
+                beginAtZero: true,
+                title: titleY,
+                grid: { color: "#e5e5e5" },
+                ticks: { font: { family: "Marianne" } }
+            }
+        };
+    } else if (stacked) {
+        scales = {
+            x: {
+                stacked: true,
+                grid: { display: false },
+                ticks: { font: { family: "Marianne", size: 12 }, color: "#161616" }
+            },
+            y: {
+                stacked: true,
+                beginAtZero: true,
+                title: titleY,
+                grid: { color: "#e5e5e5" },
+                ticks: { font: { family: "Marianne" } }
+            }
+        };
+    } else {
+        scales = {
+            x: {
+                grid: { display: false },
+                ticks: { font: { family: "Marianne", size: 12 }, color: "#161616" }
+            },
+            y: {
+                beginAtZero: true,
+                title: titleY,
+                grid: { color: "#e5e5e5" },
+                ticks: { font: { family: "Marianne" } }
+            }
+        };
+    }
+
+    const barLineData = { labels: xLabels, datasets };
+    const barLineOptions: Record<string, unknown> = {
+        responsive: true,
+        maintainAspectRatio: false,
+        ...(horizontal ? { indexAxis: "y" } : {}),
+        layout: exportChartLayout(showLegend),
+        plugins: {
+            legend: exportLegendOptions(showLegend),
+            tooltip: exportTooltipOptions()
+        },
+        scales
+    };
 
     return `(function() {
   var initChart = function() {
@@ -829,23 +1080,8 @@ function buildBarLineExportScript(
     if (!canvas || typeof Chart === "undefined") return;
     new Chart(canvas, {
       type: ${JSON.stringify(chartType)},
-      data: {
-        labels: ${labelsJson},
-        datasets: ${datasetsJson}
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false${indexAxis ? indexAxis : ""},
-        plugins: {
-          legend: { display: ${computed.series.length > 1 ? "true" : "false"}, labels: { font: { family: "Marianne", size: 12 } } },
-          tooltip: {
-            backgroundColor: "rgba(22, 22, 22, 0.9)",
-            padding: 12,
-            titleFont: { size: 14, weight: "bold", family: "Marianne" },
-            bodyFont: { size: 14, family: "Marianne" }
-          }
-        }${stackedOpts}
-      }
+      data: ${JSON.stringify(barLineData)},
+      options: ${JSON.stringify(barLineOptions)}
     });
   };
   if (document.readyState === "complete") initChart();
