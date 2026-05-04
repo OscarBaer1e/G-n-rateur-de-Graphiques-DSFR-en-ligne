@@ -45,9 +45,15 @@ export interface DataColumn {
  * Une ligne du tableur. Les valeurs sont indexées par id de colonne.
  * Les valeurs numériques sont stockées en string pour permettre la saisie libre,
  * et reparsées au moment de la sérialisation pour le graphique.
+ *
+ * `rowLead` : première colonne du tableau (à gauche), éditable. Sert de libellé
+ * principal pour l'axe des catégories / secteurs lorsqu'elle est renseignée ;
+ * sinon le libellé provient de la colonne « catégorie » (isLabel). Utile en
+ * particulier pour les graphiques secteurs (camembert / donut).
  */
 export interface DataRow {
     id: string;
+    rowLead?: string;
     cells: Record<string, string>;
 }
 

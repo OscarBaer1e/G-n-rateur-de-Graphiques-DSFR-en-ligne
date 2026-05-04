@@ -28,7 +28,7 @@ const makeRow = (cols: DataColumn[], values?: string[]): DataRow => {
     cols.forEach((c, i) => {
         cells[c.id] = values?.[i] ?? "";
     });
-    return { id: newId(), cells };
+    return { id: newId(), rowLead: "", cells };
 };
 
 export function DataEditorComponent({
@@ -96,6 +96,17 @@ export function DataEditorComponent({
     const removeRow = useCallback(
         (rowId: string) => {
             onRowsChange(state.rows.filter(r => r.id !== rowId));
+        },
+        [state.rows, onRowsChange]
+    );
+
+    const updateRowLead = useCallback(
+        (rowId: string, value: string) => {
+            onRowsChange(
+                state.rows.map(r =>
+                    r.id === rowId ? { ...r, rowLead: value } : r
+                )
+            );
         },
         [state.rows, onRowsChange]
     );
@@ -273,8 +284,10 @@ export function DataEditorComponent({
                 <table className="gb-data-table">
                     <thead>
                         <tr>
-                            <th className="gb-row-header" scope="col" aria-label="Index de ligne">
-                                #
+                            <th className="gb-row-header gb-row-header--lead" scope="col">
+                                <span title="Libellé utilisé en priorité pour l'axe des catégories et les secteurs (camembert / donut) si renseigné.">
+                                    Rang
+                                </span>
                             </th>
                             {state.columns.map(col => (
                                 <th key={col.id} scope="col">
@@ -319,6 +332,7 @@ export function DataEditorComponent({
                                 rowIdx={rowIdx}
                                 columns={state.columns}
                                 onCellChange={updateCell}
+                                onRowLeadChange={updateRowLead}
                                 onPasteCell={handlePaste}
                                 onRemove={removeRow}
                             />
@@ -328,10 +342,12 @@ export function DataEditorComponent({
             </div>
 
             <p className="gb-grid-info">
-                Première colonne = libellés de l'axe X. Les autres colonnes sont des séries
-                numériques. Cliquez sur le pictogramme « Axe&nbsp;G » / « Axe&nbsp;D » pour
-                router une série vers l'axe Y secondaire (le graphique bascule alors automatiquement
-                en barres + ligne).
+                La colonne <strong>Rang</strong> (à gauche) est éditable : si vous y saisissez un
+                texte, il sert de libellé principal pour l'axe et les graphiques en secteurs (camembert
+                et donut), en remplacement de la colonne «&nbsp;catégorie&nbsp;». Vide = numéro de ligne
+                affiché en grisé et libellé pris depuis la colonne catégorie. Les autres colonnes sont
+                des séries ; utilisez les pastilles «&nbsp;Axe&nbsp;G&nbsp;» / «&nbsp;Axe&nbsp;D&nbsp;» pour
+                le double axe barres+ligne.
             </p>
         </section>
     );
@@ -380,6 +396,7 @@ interface RowProps {
     rowIdx: number;
     columns: DataColumn[];
     onCellChange: (rowId: string, colId: string, value: string) => void;
+    onRowLeadChange: (rowId: string, value: string) => void;
     onPasteCell: (rowId: string, colId: string, raw: string) => boolean;
     onRemove: (rowId: string) => void;
 }
@@ -389,12 +406,22 @@ const DataRowView = memo(function DataRowView({
     rowIdx,
     columns,
     onCellChange,
+    onRowLeadChange,
     onPasteCell,
     onRemove
 }: RowProps) {
     return (
         <tr>
-            <td className="gb-row-header">{rowIdx + 1}</td>
+            <td className="gb-row-header gb-row-header--lead-cell">
+                <input
+                    className="gb-cell-input gb-cell-input--lead"
+                    type="text"
+                    value={row.rowLead ?? ""}
+                    placeholder={String(rowIdx + 1)}
+                    onChange={e => onRowLeadChange(row.id, e.target.value)}
+                    aria-label={`Rang ou libellé prioritaire pour le graphique, ligne ${rowIdx + 1}`}
+                />
+            </td>
             {columns.map(col => (
                 <td key={col.id}>
                     <input

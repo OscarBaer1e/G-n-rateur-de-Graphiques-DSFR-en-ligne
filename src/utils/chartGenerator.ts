@@ -106,6 +106,20 @@ function columnAxis(col: DataColumn): "left" | "right" {
 }
 
 /**
+ * Libellé de catégorie effectif pour une ligne : la colonne de gauche éditable
+ * (`rowLead`) prime sur la colonne « catégorie » du tableur. Permet d'ajuster
+ * les secteurs camembert / donut sans dupliquer la colonne principale.
+ */
+export function rowCategoryLabel(
+    row: { rowLead?: string; cells: Record<string, string> },
+    labelCol: DataColumn | undefined
+): string {
+    const lead = (row.rowLead ?? "").trim();
+    if (lead.length > 0) return lead;
+    return labelCol ? (row.cells[labelCol.id] ?? "").trim() : "";
+}
+
+/**
  * Sérialise une liste de libellés. Si ils ressemblent à des années, on
  * conserve la chaîne brute (catégoriel) — pas de nombre, pas d'interpolation.
  */
@@ -129,9 +143,7 @@ export function buildChartAttributes(state: ChartState): ChartAttributes {
     const labelCol = state.columns.find(c => c.isLabel) ?? state.columns[0];
     const seriesCols = state.columns.filter(c => !c.isLabel);
 
-    const labels = labelCol
-        ? state.rows.map(r => (r.cells[labelCol.id] ?? "").trim())
-        : [];
+    const labels = state.rows.map(r => rowCategoryLabel(r, labelCol));
 
     const yearAxisDetected = looksLikeYearAxis(labels);
 
@@ -371,8 +383,17 @@ function buildSrOnlyTable(state: ChartState, computed: ChartAttributes): string 
     const labelCol = state.columns.find(c => c.isLabel) ?? state.columns[0];
     const labelHeader = labelCol ? escapeHtml(labelCol.name) : "Catégorie";
 
+    const showRangColumn = state.rows.some(
+        r => (r.rowLead ?? "").trim().length > 0
+    );
+
     const headerCells = [
-        `<th scope="col">${labelHeader}</th>`,
+        ...(showRangColumn
+            ? [
+                  `<th scope="col">Libellé utilisé dans le graphique</th>`,
+                  `<th scope="col">${labelHeader}</th>`
+              ]
+            : [`<th scope="col">${labelHeader}</th>`]),
         ...computed.series.map(s => {
             const axisHint =
                 s.axis === "right"
@@ -384,10 +405,20 @@ function buildSrOnlyTable(state: ChartState, computed: ChartAttributes): string 
         })
     ].join("");
 
-    const bodyRows = computed.labels
-        .map((label, i) => {
+    const bodyRows = state.rows
+        .map((row, i) => {
+            const effective = rowCategoryLabel(row, labelCol);
+            const baseOnly = labelCol ? (row.cells[labelCol.id] ?? "").trim() : "";
+
+            const firstCells = showRangColumn
+                ? [
+                      `<th scope="row">${escapeHtml(effective)}</th>`,
+                      `<td>${escapeHtml(baseOnly)}</td>`
+                  ]
+                : [`<th scope="row">${escapeHtml(effective)}</th>`];
+
             const cells = [
-                `<th scope="row">${escapeHtml(label)}</th>`,
+                ...firstCells,
                 ...computed.series.map(s => {
                     const v = s.values[i];
                     return `<td>${v === null ? "" : escapeHtml(String(v))}</td>`;

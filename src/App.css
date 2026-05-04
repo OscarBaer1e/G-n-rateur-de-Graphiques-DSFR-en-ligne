@@ -188,6 +188,33 @@ td.gb-row-header {
     font-size: 0.75rem;
 }
 
+th.gb-row-header--lead,
+td.gb-row-header--lead-cell {
+    width: 72px;
+    min-width: 64px;
+    text-align: left;
+    padding: 0;
+    vertical-align: middle;
+}
+
+th.gb-row-header--lead span {
+    display: block;
+    padding: var(--gb-spacing-xs) var(--gb-spacing-sm);
+    font-weight: 700;
+    color: var(--text-title-grey);
+}
+
+input.gb-cell-input--lead {
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+    min-width: 0;
+}
+
+input.gb-cell-input--lead::placeholder {
+    color: var(--text-mention-grey);
+    opacity: 0.85;
+}
+
 th.gb-col-actions,
 td.gb-col-actions {
     width: 40px;
