@@ -305,7 +305,22 @@ export function buildChartAttributes(state: ChartState): ChartAttributes {
     }
 
     if (series.length > 0) {
-        attrs.name = JSON.stringify(series.map(s => decorateName(s.name, state.unit)));
+        if (meta.tagName === "pie-chart") {
+            /**
+             * Camembert / donut : la légende DSFR suit l'attribut `name`, qui doit
+             * lister un libellé par secteur (comme la doc officielle), pas le nom de
+             * la colonne « valeur » — sinon on obtient « Série 1 », « Série 2 », etc.
+             * @see https://gouvernementfr.github.io/dsfr-chart/
+             */
+            const sectorLegend = xLabels.map((lab, i) => {
+                const t = lab.trim();
+                if (t.length > 0) return t;
+                return `Secteur ${i + 1}`;
+            });
+            attrs.name = JSON.stringify(sectorLegend);
+        } else {
+            attrs.name = JSON.stringify(series.map(s => decorateName(s.name, state.unit)));
+        }
     }
 
     if (state.chartType === "bar-horizontal") attrs.horizontal = "true";
