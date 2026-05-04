@@ -1,7 +1,6 @@
 // filepath: src/utils/chartGenerator.ts
 // Sérialisation du state vers les attributs des web components @gouvfr/dsfr-chart
-// + génération du code d'export Sites Faciles : HTML + table fr-sr-only RGAA +
-//   Chart.js sur <canvas> (les web components DSFR ne sont pas chargés dans le CMS).
+// + génération du code d'export (HTML + table fr-sr-only RGAA + script).
 //
 // Trois sujets clés sont traités ici :
 //   1. Bascule automatique vers <bar-line-chart> dès qu'au moins une série est
@@ -14,19 +13,9 @@ import {
     CHART_TYPES,
     DUAL_AXIS_COMPATIBLE,
     type ChartState,
-    type ChartType,
     type ChartTypeMeta,
     type DataColumn
 } from "../types";
-import {
-    EXPORT_CHART_HOST_MAX_HEIGHT_PX,
-    EXPORT_CHART_HOST_MIN_HEIGHT_PX,
-    EXPORT_CHART_MAX_WIDTH_PX,
-    exportChartLayout,
-    exportLegendOptions,
-    exportPaletteColors,
-    exportTooltipOptions
-} from "./exportChartStyle";
 
 /* -------------------------------------------------------------------------- */
 /* Helpers numériques + détection années                                       */
@@ -380,6 +369,13 @@ function escapeHtml(input: string): string {
         .replace(/'/g, "&#39;");
 }
 
+function renderAttr(name: string, value: string): string {
+    if (value.includes("'") && !value.includes('"')) {
+        return `${name}="${value}"`;
+    }
+    return `${name}='${value}'`;
+}
+
 function indent(text: string, count: number): string {
     const pad = " ".repeat(count);
     return text
@@ -465,626 +461,100 @@ ${indent(bodyRows, 4)}
 </table>`;
 }
 
-function slugifyCanvasIdPart(title: string): string {
-    return title
-        .toLowerCase()
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/(^-|-$)/g, "") || "graph";
-}
-
-function parseJsonNumberArray(raw: string | undefined): number[] {
-    if (!raw) return [];
-    try {
-        const v = JSON.parse(raw) as unknown;
-        return Array.isArray(v) ? v.map(x => (typeof x === "number" && Number.isFinite(x) ? x : Number(x) || 0)) : [];
-    } catch {
-        return [];
-    }
-}
-
-/** Libellés X alignés sur `attrs.x` (ligne = années / nombres sérialisés comme dans le preview DSFR). */
-function chartLabelsJsonFromAttrs(computed: ChartAttributes, fallbackLabelsJson: string): string {
-    const raw = computed.attrs.x;
-    if (!raw) return fallbackLabelsJson;
-    try {
-        const parsed = JSON.parse(raw) as unknown;
-        if (Array.isArray(parsed) && parsed.length > 0) {
-            const first = parsed[0];
-            if (Array.isArray(first)) return JSON.stringify(first);
-        }
-    } catch {
-        /* ignore */
-    }
-    return fallbackLabelsJson;
-}
-
-/** Libellés secteurs camembert / donut (alignés sur `attrs.name` du preview). */
-function pieLabelsJsonFromAttrs(computed: ChartAttributes, fallbackLabelsJson: string): string {
-    const raw = computed.attrs.name;
-    if (!raw) return fallbackLabelsJson;
-    try {
-        const parsed = JSON.parse(raw) as unknown;
-        if (Array.isArray(parsed) && parsed.length > 0 && parsed.every(x => typeof x === "string")) {
-            return JSON.stringify(parsed);
-        }
-    } catch {
-        /* ignore */
-    }
-    return fallbackLabelsJson;
-}
-
-/**
- * Bloc d'intégration **Sites Faciles** : conteneur + canvas + Chart.js (CDN),
- * même principe que les snippets qui fonctionnent dans le CMS.
- * Les web components @gouvfr/dsfr-chart ne sont en général pas disponibles sur
- * la page d'article (chemins /static/ inexistants, pas de bundle Vue).
- */
 export function buildExportSnippet(state: ChartState, computed: ChartAttributes): string {
-    const canvasId = `sfchart_${slugifyCanvasIdPart(state.title || "graph")}_${Date.now().toString(36)}`;
+    const tag = computed.tagName;
 
-    const titleBlock = state.title.trim()
-        ? `\n      <h3 class="fr-h5 fr-mb-1w">${escapeHtml(state.title.trim())}</h3>`
+    const attributesSerialized = Object.entries(computed.attrs)
+        .map(([k, v]) => "  " + renderAttr(k, v))
+        .join("\n");
+
+    const figcaption = state.source
+        ? `\n  <figcaption class="fr-text--sm fr-mt-2w">Source : ${escapeHtml(state.source)}</figcaption>`
+        : "";
+
+    const heading = state.title
+        ? `\n<h3 class="fr-h5">${escapeHtml(state.title)}</h3>`
         : "";
 
     const descriptionBlock =
         state.description.trim().length > 0
-            ? `\n      <p class="fr-text--sm fr-mb-2w" style="color:#666;white-space:pre-wrap;">${escapeHtml(state.description.trim())}</p>`
+            ? `\n<p class="fr-text--sm fr-mb-2w">${escapeHtml(state.description.trim())}</p>`
             : "";
 
-    const sourceBlock = state.source.trim()
-        ? `\n      <p class="fr-text--sm fr-mt-2w" style="color:#666;">Source : ${escapeHtml(state.source.trim())}</p>`
+    const srTable = buildSrOnlyTable(state, computed);
+
+    const dualAxisNote = computed.dualAxisActive
+        ? `\n<!--
+  Configuration double axe Y (yAxis multiple) :
+  - Axe gauche (y-bar) : ${escapeHtml(state.unit || "—")}
+  - Axe droit  (y-line): ${escapeHtml(state.unitSecondary || "—")}
+  La balise <bar-line-chart> instancie automatiquement les deux axes verticaux,
+  positionne la série "y-bar" sur l'axe principal et la série "y-line" sur
+  l'axe secondaire (rendu LIGNE forcé pour bien marquer la différence).
+-->`
         : "";
 
-    const srTable = buildSrOnlyTable(state, computed);
-    const srTableIndented = indent(srTable, 6);
+    const yearNote = computed.yearAxisDetected
+        ? `\n<!--
+  Axe X détecté en "années" : les libellés sont passés en mode catégoriel
+  (string), garantissant qu'aucune valeur intermédiaire (ex : 2024,5) ni
+  séparateur de milliers (ex : 2 024) n'apparaisse au rendu.
+-->`
+        : "";
 
-    const labelsJson = JSON.stringify(computed.labels);
-    const chartScriptBody = buildSitesFacilesChartJsBody(state, computed, canvasId, labelsJson);
+    const mediaBase = "%%MEDIA_BASE%%";
 
-    return `<!-- Générateur de Graphiques DSFR en ligne — bloc Sites Faciles (Chart.js + canvas, compatible CMS) -->
-<div class="fr-container" style="background: #fff; padding: 20px; border: 1px solid #e5e5e5; font-family: 'Marianne', arial, sans-serif; box-sizing: border-box;">
-  <figure role="group" aria-label="${escapeHtml(state.title || "Graphique")}">${titleBlock}${descriptionBlock}
-    <div style="background: #f6f6f6; border-radius: 4px; padding: 1.5rem; max-width: ${EXPORT_CHART_MAX_WIDTH_PX}px; margin: 0 auto; box-sizing: border-box;">
-      <div style="position: relative; width: 100%; min-height: ${EXPORT_CHART_HOST_MIN_HEIGHT_PX}px; height: clamp(${EXPORT_CHART_HOST_MIN_HEIGHT_PX}px, 42vh, ${EXPORT_CHART_HOST_MAX_HEIGHT_PX}px);">
-        <canvas id="${escapeHtml(canvasId)}" aria-label="${escapeHtml(state.title || "Graphique")}"></canvas>
-      </div>
-    </div>${sourceBlock}
-${srTableIndented}
-  </figure>
-</div>
+    const sitesFacilesGuide = `<!--
+  Intégration Sites Faciles / CMS — @gouvfr/dsfr-chart (web components officiels).
+  Ne chargez pas Chart.js à part : le bundle UMD DSFRChart l’embarque déjà.
 
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-<script>
-${chartScriptBody}
-</script>
+  1) Remplacez partout %%MEDIA_BASE%% par l’URL publique du dossier hébergé
+     (sans slash final), ex. https://exemple.gouv.fr/sites/default/files/dsfr-graph
+
+  2) Copiez sur votre hébergement (même arborescence que ci-dessous par rapport à %%MEDIA_BASE%%) :
+     - Tout node_modules/@gouvfr/dsfr/dist/ → dsfr/ (fonts/, utility/, etc. inclus).
+     - node_modules/@gouvfr/dsfr-chart/dist/DSFRChart/DSFRChart.css → chart/DSFRChart.css
+     - node_modules/@gouvfr/dsfr-chart/dist/DSFRChart/DSFRChart.umd.cjs → chart/DSFRChart.umd.cjs
+
+  3) Si le thème charge déjà le DSFR : supprimez les 4 lignes dsfr/ ci-dessous
+     et gardez uniquement les 2 lignes chart/ (CSS puis script defer).
+
+  4) Ordre recommandé : feuilles de style DSFR + Chart, puis scripts en defer.
+     Si le CMS filtre les scripts : module « Code libre » global ou page dédiée.
+
+  5) Extension .cjs refusée : renommez en .js et adaptez l’attribut src.
+-->`;
+
+    const partAHead = `<!--
+================================================================
+PARTIE A — Ressources (une fois : en-tête du site ou code global)
+================================================================
+-->
+<link rel="stylesheet" href="${mediaBase}/dsfr/dsfr.min.css">
+<link rel="stylesheet" href="${mediaBase}/dsfr/utility/icons/icons.min.css">
+<link rel="stylesheet" href="${mediaBase}/dsfr/utility/utility.min.css">
+<script defer src="${mediaBase}/dsfr/dsfr.module.min.js"></script>
+<link rel="stylesheet" href="${mediaBase}/chart/DSFRChart.css">
+<script defer src="${mediaBase}/chart/DSFRChart.umd.cjs"></script>`;
+
+    const partBFigure = `<!--
+================================================================
+PARTIE B — Contenu affiché (corps de page / bloc Sites Faciles)
+================================================================
+-->
+<figure class="fr-content-media" role="group" aria-label="${escapeHtml(state.title || "Graphique")}">
+${heading}${descriptionBlock}
+  <${tag}
+${attributesSerialized}
+  ></${tag}>
+${indent(srTable, 2)}${figcaption}
+</figure>`;
+
+    return `<!-- Générateur de Graphiques DSFR en ligne — export prêt Sites Faciles -->
+${sitesFacilesGuide}
+${dualAxisNote}${yearNote}
+${partAHead}
+
+${partBFigure}
 `;
-}
-
-/** Scatter : une série par colonne, points alignés sur `attrs.x` / `attrs.y`. */
-function buildScatterSitesFacilesScript(
-    state: ChartState,
-    computed: ChartAttributes,
-    canvasId: string,
-    unit: string
-): string {
-    const series = computed.series;
-    const colors = exportPaletteColors(state.palette, Math.max(series.length, 1));
-    let xPer: unknown[][] = [];
-    let yPer: unknown[][] = [];
-    try {
-        xPer = JSON.parse(computed.attrs.x ?? "[]") as unknown[][];
-        yPer = JSON.parse(computed.attrs.y ?? "[]") as unknown[][];
-    } catch {
-        xPer = [];
-        yPer = [];
-    }
-
-    const datasets = series.map((s, i) => {
-        const xs = (Array.isArray(xPer[i]) ? xPer[i] : xPer[0]) ?? [];
-        const ys = (Array.isArray(yPer[i]) ? yPer[i] : []) as unknown[];
-        const pts = (xs as unknown[]).map((x, j) => {
-            let xv: number;
-            const n = toNumber(typeof x === "string" ? x : String(x));
-            if (n !== null) xv = n;
-            else if (typeof x === "number" && Number.isFinite(x)) xv = x;
-            else xv = j;
-            const rawY = (ys as unknown[])[j];
-            const yv =
-                typeof rawY === "number" && Number.isFinite(rawY) ? rawY : Number(rawY) || 0;
-            return { x: xv, y: yv };
-        });
-        const c = colors[i % colors.length]!;
-        return {
-            label: decorateName(s.name, unit),
-            data: pts,
-            backgroundColor: c,
-            borderColor: c,
-            pointRadius: 5,
-            showLine: state.showLine
-        };
-    });
-
-    const showLegend = series.length > 1;
-    const scatterOptions: Record<string, unknown> = {
-        responsive: true,
-        maintainAspectRatio: false,
-        layout: exportChartLayout(showLegend),
-        plugins: {
-            legend: exportLegendOptions(showLegend),
-            tooltip: exportTooltipOptions()
-        },
-        scales: {
-            x: {
-                type: "linear" as const,
-                ticks: { font: { family: "Marianne" } },
-                grid: { color: "#e5e5e5" }
-            },
-            y: {
-                beginAtZero: true,
-                title: unit
-                    ? {
-                          display: true,
-                          text: unit,
-                          font: { weight: "bold" as const, family: "Marianne" }
-                      }
-                    : { display: false },
-                ticks: { font: { family: "Marianne" } },
-                grid: { color: "#e5e5e5" }
-            }
-        }
-    };
-
-    const scatterData = { datasets };
-
-    return `(function() {
-  var initChart = function() {
-    var canvas = document.getElementById(${JSON.stringify(canvasId)});
-    if (!canvas || typeof Chart === "undefined") return;
-    new Chart(canvas, {
-      type: "scatter",
-      data: ${JSON.stringify(scatterData)},
-      options: ${JSON.stringify(scatterOptions)}
-    });
-  };
-  if (document.readyState === "complete") initChart();
-  else window.addEventListener("load", initChart);
-})();`;
-}
-
-/**
- * Corps du script : init Chart.js après chargement du canvas.
- * Généré en chaîne pour éviter toute dépendance runtime côté outil.
- */
-function buildSitesFacilesChartJsBody(
-    state: ChartState,
-    computed: ChartAttributes,
-    canvasId: string,
-    labelsJson: string
-): string {
-    const unit = state.unit.trim();
-    const unitSec = state.unitSecondary.trim();
-    const type = state.chartType;
-
-    if (computed.tagName === "gauge-chart") {
-        const val = Number(computed.attrs.value) || 0;
-        const init = Number(computed.attrs.init) || 0;
-        const target = Number(computed.attrs.target) || 100;
-        const maxY = Math.max(target, val, init, 1);
-        const labelGauge = state.title.trim() || "Indicateur";
-        const barHue = exportPaletteColors(state.palette, 1)[0] ?? "#000091";
-        const gaugeData = {
-            labels: [labelGauge],
-            datasets: [
-                {
-                    label: unit ? `Valeur (${unit})` : "Valeur",
-                    data: [val],
-                    backgroundColor: barHue,
-                    hoverBackgroundColor: "#1212ff",
-                    barThickness: 48
-                }
-            ]
-        };
-        const gaugeOptions = {
-            responsive: true,
-            maintainAspectRatio: false,
-            layout: exportChartLayout(false),
-            plugins: {
-                legend: exportLegendOptions(false),
-                tooltip: exportTooltipOptions()
-            },
-            scales: {
-                x: {
-                    grid: { display: false },
-                    ticks: { font: { family: "Marianne", size: 12 }, color: "#161616" }
-                },
-                y: {
-                    beginAtZero: true,
-                    max: maxY,
-                    ticks: { font: { family: "Marianne" } },
-                    grid: { color: "#e5e5e5" }
-                }
-            }
-        };
-        return `(function() {
-  var initChart = function() {
-    var canvas = document.getElementById(${JSON.stringify(canvasId)});
-    if (!canvas || typeof Chart === "undefined") return;
-    new Chart(canvas, {
-      type: "bar",
-      data: ${JSON.stringify(gaugeData)},
-      options: ${JSON.stringify(gaugeOptions)}
-    });
-  };
-  if (document.readyState === "complete") initChart();
-  else window.addEventListener("load", initChart);
-})();`;
-    }
-
-    if (computed.dualAxisActive) {
-        const yBar = parseJsonNumberArray(computed.attrs["y-bar"]);
-        const yLine = parseJsonNumberArray(computed.attrs["y-line"]);
-        let xLabels: unknown[];
-        try {
-            const xLabelsParsed = JSON.parse(computed.attrs.x ?? labelsJson) as unknown;
-            if (Array.isArray(xLabelsParsed) && xLabelsParsed.length > 0 && !Array.isArray(xLabelsParsed[0])) {
-                xLabels = xLabelsParsed;
-            } else if (
-                Array.isArray(xLabelsParsed) &&
-                xLabelsParsed.length > 0 &&
-                Array.isArray((xLabelsParsed as unknown[])[0])
-            ) {
-                xLabels = (xLabelsParsed as unknown[][])[0]!;
-            } else {
-                xLabels = JSON.parse(labelsJson) as unknown[];
-            }
-        } catch {
-            xLabels = JSON.parse(labelsJson) as unknown[];
-        }
-        const dsBar = computed.series.find(s => s.axis === "left");
-        const dsLine = computed.series.find(s => s.axis === "right");
-        const nameBar = dsBar ? decorateName(dsBar.name, unit) : "Barres";
-        const nameLine = dsLine ? decorateName(dsLine.name, unitSec || unit) : "Ligne";
-        const cols = exportPaletteColors(state.palette, 2);
-        const barColor = cols[0] ?? "#000091";
-        const lineColor = "#E1000F";
-        const dualData = {
-            labels: xLabels,
-            datasets: [
-                {
-                    type: "bar" as const,
-                    label: nameBar,
-                    data: yBar,
-                    backgroundColor: barColor,
-                    hoverBackgroundColor: "#1212ff",
-                    yAxisID: "y",
-                    order: 2
-                },
-                {
-                    type: "line" as const,
-                    label: nameLine,
-                    data: yLine,
-                    borderColor: lineColor,
-                    backgroundColor: "rgba(225, 0, 15, 0.12)",
-                    yAxisID: "y1",
-                    tension: 0.2,
-                    order: 1,
-                    fill: false
-                }
-            ]
-        };
-        const dualOptions = {
-            responsive: true,
-            maintainAspectRatio: false,
-            layout: exportChartLayout(true),
-            interaction: { mode: "index" as const, intersect: false },
-            plugins: {
-                legend: exportLegendOptions(true),
-                tooltip: exportTooltipOptions()
-            },
-            scales: {
-                x: {
-                    grid: { display: false },
-                    ticks: { font: { family: "Marianne", size: 12 }, color: "#161616" }
-                },
-                y: {
-                    type: "linear" as const,
-                    position: "left" as const,
-                    title: {
-                        display: true,
-                        text: unit || "Axe gauche",
-                        font: { family: "Marianne", weight: "bold" as const }
-                    },
-                    grid: { color: "#e5e5e5" },
-                    beginAtZero: true
-                },
-                y1: {
-                    type: "linear" as const,
-                    position: "right" as const,
-                    title: {
-                        display: true,
-                        text: unitSec || "Axe droit",
-                        font: { family: "Marianne", weight: "bold" as const }
-                    },
-                    grid: { drawOnChartArea: false },
-                    beginAtZero: true
-                }
-            }
-        };
-        return `(function() {
-  var initChart = function() {
-    var canvas = document.getElementById(${JSON.stringify(canvasId)});
-    if (!canvas || typeof Chart === "undefined") return;
-    new Chart(canvas, {
-      type: "bar",
-      data: ${JSON.stringify(dualData)},
-      options: ${JSON.stringify(dualOptions)}
-    });
-  };
-  if (document.readyState === "complete") initChart();
-  else window.addEventListener("load", initChart);
-})();`;
-    }
-
-    if (type === "pie" || type === "donut") {
-        const vals = (computed.series[0]?.values ?? []).map(v => (v === null ? 0 : v));
-        const sectorLabelsJson = pieLabelsJsonFromAttrs(computed, labelsJson);
-        let sectorLabels: string[] = [];
-        try {
-            const p = JSON.parse(sectorLabelsJson) as unknown;
-            if (Array.isArray(p) && p.every(x => typeof x === "string")) sectorLabels = p as string[];
-        } catch {
-            sectorLabels = [];
-        }
-        if (sectorLabels.length === 0) {
-            try {
-                const p = JSON.parse(labelsJson) as unknown;
-                if (Array.isArray(p) && p.every(x => typeof x === "string")) sectorLabels = p as string[];
-            } catch {
-                sectorLabels = [];
-            }
-        }
-        const n = Math.max(vals.length, sectorLabels.length, 1);
-        const sliceColors = exportPaletteColors(state.palette, n);
-        while (sectorLabels.length < vals.length) {
-            sectorLabels.push(`Secteur ${sectorLabels.length + 1}`);
-        }
-        const pieLabel =
-            computed.series[0] != null
-                ? decorateName(computed.series[0].name, state.unit.trim())
-                : state.unit
-                  ? `Valeur (${state.unit})`
-                  : "Valeur";
-        const pieData = {
-            labels: sectorLabels.slice(0, vals.length),
-            datasets: [
-                {
-                    label: pieLabel,
-                    data: vals,
-                    backgroundColor: sliceColors.slice(0, vals.length),
-                    hoverOffset: 6
-                }
-            ]
-        };
-        const pieOptions = {
-            responsive: true,
-            maintainAspectRatio: false,
-            cutout: type === "donut" ? "55%" : 0,
-            layout: exportChartLayout(vals.length > 1),
-            plugins: {
-                legend: exportLegendOptions(vals.length > 1),
-                tooltip: exportTooltipOptions()
-            }
-        };
-        return `(function() {
-  var initChart = function() {
-    var canvas = document.getElementById(${JSON.stringify(canvasId)});
-    if (!canvas || typeof Chart === "undefined") return;
-    new Chart(canvas, {
-      type: "doughnut",
-      data: ${JSON.stringify(pieData)},
-      options: ${JSON.stringify(pieOptions)}
-    });
-  };
-  if (document.readyState === "complete") initChart();
-  else window.addEventListener("load", initChart);
-})();`;
-    }
-
-    if (type === "scatter") {
-        return buildScatterSitesFacilesScript(state, computed, canvasId, unit);
-    }
-
-    if (type === "radar") {
-        const vals = (computed.series[0]?.values ?? []).map(v => (v === null ? 0 : v));
-        const lab = computed.series[0]
-            ? decorateName(computed.series[0].name, unit)
-            : "Série";
-        const c0 = exportPaletteColors(state.palette, 1)[0] ?? "#000091";
-        const border = c0;
-        const fill =
-            c0.startsWith("#") && c0.length === 7
-                ? `${c0}33`
-                : c0.startsWith("#") && c0.length === 9
-                  ? c0
-                  : "rgba(0,0,145,0.2)";
-        let radarLabs: string[];
-        try {
-            radarLabs = JSON.parse(labelsJson) as string[];
-        } catch {
-            radarLabs = computed.labels;
-        }
-        const radarData = {
-            labels: radarLabs,
-            datasets: [{ label: lab, data: vals, borderColor: border, backgroundColor: fill }]
-        };
-        const radarOptions = {
-            responsive: true,
-            maintainAspectRatio: false,
-            layout: exportChartLayout(false),
-            plugins: {
-                legend: exportLegendOptions(false),
-                tooltip: exportTooltipOptions()
-            },
-            scales: {
-                r: {
-                    beginAtZero: true,
-                    ticks: { font: { family: "Marianne" } },
-                    grid: { color: "#e5e5e5" },
-                    pointLabels: { font: { family: "Marianne", size: 11 } }
-                }
-            }
-        };
-        return `(function() {
-  var initChart = function() {
-    var canvas = document.getElementById(${JSON.stringify(canvasId)});
-    if (!canvas || typeof Chart === "undefined") return;
-    new Chart(canvas, {
-      type: "radar",
-      data: ${JSON.stringify(radarData)},
-      options: ${JSON.stringify(radarOptions)}
-    });
-  };
-  if (document.readyState === "complete") initChart();
-  else window.addEventListener("load", initChart);
-})();`;
-    }
-
-    const barLineLabelsJson = chartLabelsJsonFromAttrs(computed, labelsJson);
-    return buildBarLineExportScript(state, type, computed, canvasId, barLineLabelsJson, unit);
-}
-
-function buildBarLineExportScript(
-    state: ChartState,
-    type: ChartType,
-    computed: ChartAttributes,
-    canvasId: string,
-    labelsJson: string,
-    unit: string
-): string {
-    const stacked = type === "bar-stacked";
-    const horizontal = type === "bar-horizontal";
-    const isLine = type === "line";
-    const colors = exportPaletteColors(state.palette, Math.max(computed.series.length, 1));
-
-    let xLabels: unknown[];
-    try {
-        xLabels = JSON.parse(labelsJson) as unknown[];
-    } catch {
-        xLabels = [];
-    }
-
-    const datasets = computed.series.map((s, i) => {
-        const data = s.values.map(v => (v === null ? 0 : v));
-        const color = colors[i % colors.length]!;
-        const base: Record<string, unknown> = {
-            label: decorateName(s.name, unit),
-            data,
-            backgroundColor: isLine ? "transparent" : color,
-            borderColor: color,
-            borderWidth: isLine ? 2 : 0,
-            fill: false,
-            tension: isLine ? 0.2 : 0
-        };
-        if (stacked) (base as { stack?: string }).stack = "s0";
-        if (!isLine) {
-            (base as { hoverBackgroundColor?: string }).hoverBackgroundColor = "#1212ff";
-            (base as { barThickness?: number }).barThickness = 50;
-        }
-        return base;
-    });
-
-    const chartType = isLine ? "line" : "bar";
-    const showLegend = computed.series.length > 1;
-
-    const titleY = unit
-        ? { display: true, text: unit, font: { weight: "bold" as const, family: "Marianne" } }
-        : { display: false };
-
-    let scales: Record<string, unknown>;
-    if (horizontal && stacked) {
-        scales = {
-            x: {
-                stacked: true,
-                beginAtZero: true,
-                title: titleY,
-                grid: { color: "#e5e5e5" },
-                ticks: { font: { family: "Marianne" } }
-            },
-            y: {
-                stacked: true,
-                grid: { display: false },
-                ticks: { font: { family: "Marianne", size: 12 }, color: "#161616" }
-            }
-        };
-    } else if (horizontal) {
-        scales = {
-            y: {
-                grid: { display: false },
-                ticks: { font: { family: "Marianne", size: 12 }, color: "#161616" }
-            },
-            x: {
-                beginAtZero: true,
-                title: titleY,
-                grid: { color: "#e5e5e5" },
-                ticks: { font: { family: "Marianne" } }
-            }
-        };
-    } else if (stacked) {
-        scales = {
-            x: {
-                stacked: true,
-                grid: { display: false },
-                ticks: { font: { family: "Marianne", size: 12 }, color: "#161616" }
-            },
-            y: {
-                stacked: true,
-                beginAtZero: true,
-                title: titleY,
-                grid: { color: "#e5e5e5" },
-                ticks: { font: { family: "Marianne" } }
-            }
-        };
-    } else {
-        scales = {
-            x: {
-                grid: { display: false },
-                ticks: { font: { family: "Marianne", size: 12 }, color: "#161616" }
-            },
-            y: {
-                beginAtZero: true,
-                title: titleY,
-                grid: { color: "#e5e5e5" },
-                ticks: { font: { family: "Marianne" } }
-            }
-        };
-    }
-
-    const barLineData = { labels: xLabels, datasets };
-    const barLineOptions: Record<string, unknown> = {
-        responsive: true,
-        maintainAspectRatio: false,
-        ...(horizontal ? { indexAxis: "y" } : {}),
-        layout: exportChartLayout(showLegend),
-        plugins: {
-            legend: exportLegendOptions(showLegend),
-            tooltip: exportTooltipOptions()
-        },
-        scales
-    };
-
-    return `(function() {
-  var initChart = function() {
-    var canvas = document.getElementById(${JSON.stringify(canvasId)});
-    if (!canvas || typeof Chart === "undefined") return;
-    new Chart(canvas, {
-      type: ${JSON.stringify(chartType)},
-      data: ${JSON.stringify(barLineData)},
-      options: ${JSON.stringify(barLineOptions)}
-    });
-  };
-  if (document.readyState === "complete") initChart();
-  else window.addEventListener("load", initChart);
-})();`;
 }

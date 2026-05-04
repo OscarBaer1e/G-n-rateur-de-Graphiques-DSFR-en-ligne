@@ -56,9 +56,10 @@ export function ExportPanel({ state }: Props): JSX.Element {
             </div>
 
             <p className="fr-text--sm" style={{ color: "var(--text-mention-grey)" }}>
-                Bloc HTML autonome contenant : la balise web component DSFR officielle, un
-                tableau alternatif <code>fr-sr-only</code> conforme RGAA (critères 1.1 / 1.6),
-                et un script de bootstrap optionnel.
+                Deux blocs : ressources (UMD officiel <code>DSFRChart.umd.cjs</code>, sans{" "}
+                <code>type=&quot;module&quot;</code>) puis le <code>figure</code> avec le web
+                component, le tableau <code>fr-sr-only</code> RGAA et les instructions pour
+                remplacer <code>%%MEDIA_BASE%%</code> et héberger les fichiers npm.
             </p>
 
             <label htmlFor="gb-export-output" className="fr-sr-only">
