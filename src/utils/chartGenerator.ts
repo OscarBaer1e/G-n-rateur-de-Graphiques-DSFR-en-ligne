@@ -9,7 +9,6 @@
 //      ("2024,5") et tout séparateur de milliers ("2 024").
 //   3. Génération d'un tableau RGAA fr-sr-only synchronisé avec la config réelle.
 
-import { EMBED_CDN_DSFR_CHART_VERSION, EMBED_CDN_DSFR_VERSION } from "../constants/embedCdnVersions";
 import {
     CHART_TYPES,
     DUAL_AXIS_COMPATIBLE,
@@ -17,10 +16,6 @@ import {
     type ChartTypeMeta,
     type DataColumn
 } from "../types";
-
-function jsdelivrNpm(pkg: string, version: string, resourcePath: string): string {
-    return `https://cdn.jsdelivr.net/npm/${pkg}@${version}/${resourcePath}`;
-}
 
 /* -------------------------------------------------------------------------- */
 /* Helpers numériques + détection années                                       */
@@ -389,10 +384,10 @@ function indent(text: string, count: number): string {
         .join("\n");
 }
 
-function buildSrOnlyTable(state: ChartState, computed: ChartAttributes): string {
+export function buildSrOnlyTable(state: ChartState, computed: ChartAttributes): string {
     if (computed.tagName === "gauge-chart") {
         const caption = state.title ? escapeHtml(state.title) : "Jauge";
-        return `<table class="fr-sr-only">
+        return `<table class="fr-table fr-sr-only">
   <caption>${caption}${state.unit ? ` (en ${escapeHtml(state.unit)})` : ""}</caption>
   <thead>
     <tr><th scope="col">Indicateur</th><th scope="col">Valeur</th></tr>
@@ -455,7 +450,7 @@ function buildSrOnlyTable(state: ChartState, computed: ChartAttributes): string 
 
     const caption = state.title ? escapeHtml(state.title) : "Données du graphique";
 
-    return `<table class="fr-sr-only">
+    return `<table class="fr-table fr-sr-only">
   <caption>${caption}</caption>
   <thead>
     <tr>${headerCells}</tr>
@@ -507,19 +502,47 @@ export function buildExportSnippet(state: ChartState, computed: ChartAttributes)
 -->`
         : "";
 
-    const dsfrV = EMBED_CDN_DSFR_VERSION;
-    const chartV = EMBED_CDN_DSFR_CHART_VERSION;
-    const dsfrPkg = "@gouvfr/dsfr";
-    const chartPkg = "@gouvfr/dsfr-chart";
+    const mediaBase = "%%MEDIA_BASE%%";
 
-    const autonomousHead = `<link rel="stylesheet" href="${jsdelivrNpm(dsfrPkg, dsfrV, "dist/dsfr.min.css")}">
-<link rel="stylesheet" href="${jsdelivrNpm(dsfrPkg, dsfrV, "dist/utility/icons/icons.min.css")}">
-<link rel="stylesheet" href="${jsdelivrNpm(dsfrPkg, dsfrV, "dist/utility/utility.min.css")}">
-<script defer src="${jsdelivrNpm(dsfrPkg, dsfrV, "dist/dsfr.module.min.js")}"></script>
-<link rel="stylesheet" href="${jsdelivrNpm(chartPkg, chartV, "dist/DSFRChart/DSFRChart.css")}">
-<script defer src="${jsdelivrNpm(chartPkg, chartV, "dist/DSFRChart/DSFRChart.umd.cjs")}"></script>`;
+    const sitesFacilesGuide = `<!--
+  Intégration Sites Faciles / CMS — @gouvfr/dsfr-chart (web components officiels).
+  Ne chargez pas Chart.js à part : le bundle UMD DSFRChart l’embarque déjà.
 
-    const figureBlock = `<figure class="fr-content-media" role="group" aria-label="${escapeHtml(state.title || "Graphique")}">
+  1) Remplacez partout %%MEDIA_BASE%% par l’URL publique du dossier hébergé
+     (sans slash final), ex. https://exemple.gouv.fr/sites/default/files/dsfr-graph
+
+  2) Copiez sur votre hébergement (même arborescence que ci-dessous par rapport à %%MEDIA_BASE%%) :
+     - Tout node_modules/@gouvfr/dsfr/dist/ → dsfr/ (fonts/, utility/, etc. inclus).
+     - node_modules/@gouvfr/dsfr-chart/dist/DSFRChart/DSFRChart.css → chart/DSFRChart.css
+     - node_modules/@gouvfr/dsfr-chart/dist/DSFRChart/DSFRChart.umd.cjs → chart/DSFRChart.umd.cjs
+
+  3) Si le thème charge déjà le DSFR : supprimez les 4 lignes dsfr/ ci-dessous
+     et gardez uniquement les 2 lignes chart/ (CSS puis script defer).
+
+  4) Ordre recommandé : feuilles de style DSFR + Chart, puis scripts en defer.
+     Si le CMS filtre les scripts : module « Code libre » global ou page dédiée.
+
+  5) Extension .cjs refusée : renommez en .js et adaptez l’attribut src.
+-->`;
+
+    const partAHead = `<!--
+================================================================
+PARTIE A — Ressources (une fois : en-tête du site ou code global)
+================================================================
+-->
+<link rel="stylesheet" href="${mediaBase}/dsfr/dsfr.min.css">
+<link rel="stylesheet" href="${mediaBase}/dsfr/utility/icons/icons.min.css">
+<link rel="stylesheet" href="${mediaBase}/dsfr/utility/utility.min.css">
+<script defer src="${mediaBase}/dsfr/dsfr.module.min.js"></script>
+<link rel="stylesheet" href="${mediaBase}/chart/DSFRChart.css">
+<script defer src="${mediaBase}/chart/DSFRChart.umd.cjs"></script>`;
+
+    const partBFigure = `<!--
+================================================================
+PARTIE B — Contenu affiché (corps de page / bloc Sites Faciles)
+================================================================
+-->
+<figure class="fr-content-media" role="group" aria-label="${escapeHtml(state.title || "Graphique")}">
 ${heading}${descriptionBlock}
   <${tag}
 ${attributesSerialized}
@@ -527,18 +550,11 @@ ${attributesSerialized}
 ${indent(srTable, 2)}${figcaption}
 </figure>`;
 
-    const autonomousGuide = `<!--
-  Bloc autonome (copier-coller unique) : DSFR + dsfr-chart via jsDelivr.
-  Connexion Internet requise au chargement de la page. Ne pas ajouter Chart.js séparément.
-  Versions npm : ${dsfrPkg}@${dsfrV}, ${chartPkg}@${chartV} (alignées sur le build de l’outil).
-  Plusieurs graphiques sur une même page : une seule série de balises link et script,
-  puis un bloc figure par graphique.
--->`;
-
-    return `<!-- Générateur de Graphiques DSFR en ligne — export autonome -->
-${autonomousGuide}
+    return `<!-- Générateur de Graphiques DSFR en ligne — export prêt Sites Faciles -->
+${sitesFacilesGuide}
 ${dualAxisNote}${yearNote}
-${autonomousHead}
-${figureBlock}
+${partAHead}
+
+${partBFigure}
 `;
 }

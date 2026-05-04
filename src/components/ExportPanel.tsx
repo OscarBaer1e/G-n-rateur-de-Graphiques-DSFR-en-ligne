@@ -3,6 +3,9 @@ import { useMemo, useState } from "react";
 import { Check, Code2, Copy, Download } from "lucide-react";
 import type { ChartState } from "../types";
 import { buildChartAttributes, buildExportSnippet } from "../utils/chartGenerator";
+import { buildEChartsExportSnippet } from "../utils/echartsExport";
+
+type ExportEngine = "echarts" | "webcomponents";
 
 interface Props {
     state: ChartState;
@@ -10,11 +13,14 @@ interface Props {
 
 export function ExportPanel({ state }: Props): JSX.Element {
     const [copied, setCopied] = useState(false);
+    const [engine, setEngine] = useState<ExportEngine>("echarts");
 
     const snippet = useMemo(() => {
         const computed = buildChartAttributes(state);
-        return buildExportSnippet(state, computed);
-    }, [state]);
+        return engine === "echarts"
+            ? buildEChartsExportSnippet(state, computed)
+            : buildExportSnippet(state, computed);
+    }, [state, engine]);
 
     const handleCopy = async (): Promise<void> => {
         try {
@@ -43,7 +49,7 @@ export function ExportPanel({ state }: Props): JSX.Element {
                 .replace(/[\u0300-\u036f]/g, "")
                 .replace(/[^a-z0-9]+/g, "-")
                 .replace(/(^-|-$)/g, "") || "graphique-dsfr";
-        a.download = `${safeTitle}.html`;
+        a.download = `${safeTitle}${engine === "echarts" ? "-echarts" : "-dsfr-wc"}.html`;
         a.click();
         URL.revokeObjectURL(url);
     };
@@ -55,12 +61,59 @@ export function ExportPanel({ state }: Props): JSX.Element {
                 <h2 id="export-title">Export — code prêt à intégrer (Sites Faciles)</h2>
             </div>
 
+            <fieldset className="fr-fieldset" style={{ marginBottom: "1rem" }}>
+                <legend className="fr-fieldset__legend fr-text--regular">Moteur d’export</legend>
+                <div className="fr-fieldset__content">
+                    <div className="fr-radio-group">
+                        <input
+                            type="radio"
+                            id="export-engine-echarts"
+                            name="export-engine"
+                            checked={engine === "echarts"}
+                            onChange={() => setEngine("echarts")}
+                        />
+                        <label className="fr-label" htmlFor="export-engine-echarts">
+                            ECharts (Sites Faciles, CDN jsDelivr)
+                            <span className="fr-hint-text">
+                                Conteneur + tableau <code className="fr-text--xs">fr-table fr-sr-only</code>{" "}
+                                + ECharts 5.5, style dataviz proche DSFR. Recommandé si les web components
+                                ne se chargent pas dans le CMS.
+                            </span>
+                        </label>
+                    </div>
+                    <div className="fr-radio-group fr-mt-2w">
+                        <input
+                            type="radio"
+                            id="export-engine-wc"
+                            name="export-engine"
+                            checked={engine === "webcomponents"}
+                            onChange={() => setEngine("webcomponents")}
+                        />
+                        <label className="fr-label" htmlFor="export-engine-wc">
+                            Web components <code className="fr-text--xs">@gouvfr/dsfr-chart</code>
+                            <span className="fr-hint-text">
+                                Même rendu que l’aperçu : hébergement local des fichiers UMD +{" "}
+                                <code className="fr-text--xs">%%MEDIA_BASE%%</code>.
+                            </span>
+                        </label>
+                    </div>
+                </div>
+            </fieldset>
+
             <p className="fr-text--sm" style={{ color: "var(--text-mention-grey)" }}>
-                Un seul collage : styles et scripts officiels (jsDelivr, versions alignées sur{" "}
-                <code>package-lock.json</code> à chaque <code>npm run build</code>) puis le{" "}
-                <code>figure</code> avec web component
-                et tableau <code>fr-sr-only</code>. Aucun fichier à héberger ; la page doit pouvoir
-                charger des ressources externes.
+                {engine === "echarts" ? (
+                    <>
+                        Bloc autonome : figure, graphique dans une <code>div</code>, tableau
+                        d’accessibilité, puis scripts (ECharts puis initialisation). Polices Marianne
+                        si le thème du site ne les charge pas déjà.
+                    </>
+                ) : (
+                    <>
+                        Deux blocs : ressources (UMD <code>DSFRChart.umd.cjs</code>) puis{" "}
+                        <code>figure</code> avec web component et tableau RGAA ; remplacer{" "}
+                        <code>%%MEDIA_BASE%%</code> selon les commentaires du code généré.
+                    </>
+                )}
             </p>
 
             <label htmlFor="gb-export-output" className="fr-sr-only">
