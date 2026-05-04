@@ -180,7 +180,7 @@ export function buildChartAttributes(state: ChartState): ChartAttributes {
 
         const gaugeLegendName =
             firstSeries !== undefined
-                ? decorateName(firstSeries.name, state.unit)
+                ? decorateSeriesName(firstSeries.name, state.unit)
                 : state.title.trim().length > 0
                 ? state.title.trim()
                 : state.unit.trim().length > 0
@@ -245,10 +245,10 @@ export function buildChartAttributes(state: ChartState): ChartAttributes {
         // Légende : suffixe de l'unité pour distinguer visuellement les axes.
         const decoratedNames: string[] = [];
         if (leftSeries[0]) {
-            decoratedNames.push(decorateName(leftSeries[0].name, state.unit));
+            decoratedNames.push(decorateSeriesName(leftSeries[0].name, state.unit));
         }
         if (rightSeries[0]) {
-            decoratedNames.push(decorateName(rightSeries[0].name, state.unitSecondary));
+            decoratedNames.push(decorateSeriesName(rightSeries[0].name, state.unitSecondary));
         }
         if (decoratedNames.length > 0) attrs.name = JSON.stringify(decoratedNames);
 
@@ -332,7 +332,7 @@ export function buildChartAttributes(state: ChartState): ChartAttributes {
                 : xLabels.map((_, i) => `Secteur ${i + 1}`);
         attrs.name = JSON.stringify(sectorLegend.length > 0 ? sectorLegend : ["Secteur"]);
     } else if (series.length > 0) {
-        attrs.name = JSON.stringify(series.map(s => decorateName(s.name, state.unit)));
+        attrs.name = JSON.stringify(series.map(s => decorateSeriesName(s.name, state.unit)));
     } else {
         attrs.name = JSON.stringify(["Série"]);
     }
@@ -362,12 +362,14 @@ export function buildChartAttributes(state: ChartState): ChartAttributes {
 /**
  * Suffixe l'unité dans le nom de série pour la légende :
  * "Valeur" + "M€" → "Valeur (M€)". Ne fait rien si l'unité est vide ou déjà présente.
+ * Libellé vide → « Série » (évite une légende sans texte).
  */
-function decorateName(name: string, unit: string): string {
+export function decorateSeriesName(name: string, unit: string): string {
+    const base = name.trim().length > 0 ? name.trim() : "Série";
     const u = unit.trim();
-    if (u.length === 0) return name;
-    if (name.includes(u)) return name;
-    return `${name} (${u})`;
+    if (u.length === 0) return base;
+    if (base.includes(u)) return base;
+    return `${base} (${u})`;
 }
 
 /* -------------------------------------------------------------------------- */

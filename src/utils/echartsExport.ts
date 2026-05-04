@@ -3,7 +3,11 @@
 // + tableau fr-table fr-sr-only (RGAA). L’aperçu dans l’app reste sur @gouvfr/dsfr-chart.
 
 import type { ChartState, DsfrPalette } from "../types";
-import { buildSrOnlyTable, type ChartAttributes } from "./chartGenerator";
+import {
+    buildSrOnlyTable,
+    decorateSeriesName,
+    type ChartAttributes
+} from "./chartGenerator";
 
 const ECHARTS_CDN = "https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js";
 
@@ -45,13 +49,6 @@ function escapeHtml(input: string): string {
         .replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#39;");
-}
-
-function decorateName(name: string, unit: string): string {
-    const u = unit.trim();
-    if (u.length === 0) return name;
-    if (name.includes(u)) return name;
-    return `${name} (${u})`;
 }
 
 function safeJsonForScript(obj: unknown): string {
@@ -127,7 +124,7 @@ function buildOption(state: ChartState, computed: ChartAttributes): Record<strin
         const min = state.gaugeInit;
         const max = state.gaugeTarget;
         const name = computed.series[0]?.name
-            ? decorateName(computed.series[0].name, state.unit)
+            ? decorateSeriesName(computed.series[0].name, state.unit)
             : state.unit.trim()
             ? `Valeur (${state.unit.trim()})`
             : "Valeur";
@@ -165,8 +162,8 @@ function buildOption(state: ChartState, computed: ChartAttributes): Record<strin
         const right = computed.series.find(s => s.axis === "right");
         const yBar = (left?.values ?? []).map(v => (v === null ? null : v));
         const yLine = (right?.values ?? []).map(v => (v === null ? null : v));
-        const barName = left ? decorateName(left.name, state.unit) : "Série 1";
-        const lineName = right ? decorateName(right.name, state.unitSecondary) : "Série 2";
+        const barName = left ? decorateSeriesName(left.name, state.unit) : "Série 1";
+        const lineName = right ? decorateSeriesName(right.name, state.unitSecondary) : "Série 2";
         return {
             color: colors,
             tooltip: { ...baseTooltipAxis, trigger: "axis" },
@@ -274,7 +271,7 @@ function buildOption(state: ChartState, computed: ChartAttributes): Record<strin
         return {
             color: colors,
             tooltip: {},
-            legend: { ...baseLegend, data: rSeries.map(s => decorateName(s.name, state.unit)) },
+            legend: { ...baseLegend, data: rSeries.map(s => decorateSeriesName(s.name, state.unit)) },
             radar: {
                 indicator: indicators,
                 axisName: { fontFamily: "Marianne, sans-serif", color: "#666666" }
@@ -284,7 +281,7 @@ function buildOption(state: ChartState, computed: ChartAttributes): Record<strin
                     type: "radar",
                     data: rSeries.map(s => ({
                         value: s.values.map(v => (v === null ? 0 : v)),
-                        name: decorateName(s.name, state.unit)
+                        name: decorateSeriesName(s.name, state.unit)
                     }))
                 }
             ]
@@ -297,7 +294,7 @@ function buildOption(state: ChartState, computed: ChartAttributes): Record<strin
                 ? computed.series
                 : [{ name: "—", axis: "left" as const, values: labels.map(() => null) }];
         const seriesList = scSeries.map(s => ({
-            name: decorateName(s.name, state.unit),
+            name: decorateSeriesName(s.name, state.unit),
             type: (state.showLine ? "line" : "scatter") as "line" | "scatter",
             data: s.values.map(v => (v === null ? null : v)),
             symbolSize: state.showLine ? 8 : 10,
@@ -310,7 +307,7 @@ function buildOption(state: ChartState, computed: ChartAttributes): Record<strin
             tooltip: { ...baseTooltipAxis },
             legend: {
                 ...baseLegend,
-                data: scSeries.map(s => decorateName(s.name, state.unit))
+                data: scSeries.map(s => decorateSeriesName(s.name, state.unit))
             },
             grid: baseGrid,
             xAxis: {
@@ -337,7 +334,7 @@ function buildOption(state: ChartState, computed: ChartAttributes): Record<strin
                 ? computed.series
                 : [{ name: "—", axis: "left" as const, values: labels.map(() => null) }];
         const seriesList = hSeries.map(s => ({
-            name: decorateName(s.name, state.unit),
+            name: decorateSeriesName(s.name, state.unit),
             type: "bar" as const,
             data: s.values.map(v => (v === null ? null : v))
         }));
@@ -346,7 +343,7 @@ function buildOption(state: ChartState, computed: ChartAttributes): Record<strin
             tooltip: baseTooltipAxis,
             legend: {
                 ...baseLegend,
-                data: hSeries.map(s => decorateName(s.name, state.unit))
+                data: hSeries.map(s => decorateSeriesName(s.name, state.unit))
             },
             grid: { ...baseGrid, left: "8%" },
             xAxis: {
@@ -374,7 +371,7 @@ function buildOption(state: ChartState, computed: ChartAttributes): Record<strin
             ? computed.series
             : [{ name: "—", axis: "left" as const, values: labels.map(() => null) }];
     const seriesList = seriesSrc.map(s => ({
-        name: decorateName(s.name, state.unit),
+        name: decorateSeriesName(s.name, state.unit),
         type: (isLine ? "line" : "bar") as "line" | "bar",
         stack: stacked ? "total" : undefined,
         barGap: isLine ? undefined : "15%",
@@ -387,7 +384,7 @@ function buildOption(state: ChartState, computed: ChartAttributes): Record<strin
         tooltip: baseTooltipAxis,
         legend: {
             ...baseLegend,
-            data: seriesSrc.map(s => decorateName(s.name, state.unit))
+            data: seriesSrc.map(s => decorateSeriesName(s.name, state.unit))
         },
         grid: baseGrid,
         xAxis: {
