@@ -1,6 +1,7 @@
 // filepath: src/utils/chartGenerator.ts
 // Sérialisation du state vers les attributs des web components @gouvfr/dsfr-chart
-// + génération du code d'export (HTML + table fr-sr-only RGAA + script).
+// + génération du code d'export Sites Faciles : HTML + table fr-sr-only RGAA +
+//   Chart.js sur <canvas> (les web components DSFR ne sont pas chargés dans le CMS).
 //
 // Trois sujets clés sont traités ici :
 //   1. Bascule automatique vers <bar-line-chart> dès qu'au moins une série est
@@ -13,6 +14,7 @@ import {
     CHART_TYPES,
     DUAL_AXIS_COMPATIBLE,
     type ChartState,
+    type ChartType,
     type ChartTypeMeta,
     type DataColumn
 } from "../types";
@@ -369,13 +371,6 @@ function escapeHtml(input: string): string {
         .replace(/'/g, "&#39;");
 }
 
-function renderAttr(name: string, value: string): string {
-    if (value.includes("'") && !value.includes('"')) {
-        return `${name}="${value}"`;
-    }
-    return `${name}='${value}'`;
-}
-
 function indent(text: string, count: number): string {
     const pad = " ".repeat(count);
     return text
@@ -461,70 +456,399 @@ ${indent(bodyRows, 4)}
 </table>`;
 }
 
+/** Couleurs proches du bleu DSFR et variantes pour séries multiples (export CMS). */
+const SF_CHART_COLORS = [
+    "#000091",
+    "#009081",
+    "#E10110",
+    "#7B4B9A",
+    "#465F9D",
+    "#A558A0"
+] as const;
+
+function slugifyCanvasIdPart(title: string): string {
+    return title
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/(^-|-$)/g, "") || "graph";
+}
+
+function parseJsonNumberArray(raw: string | undefined): number[] {
+    if (!raw) return [];
+    try {
+        const v = JSON.parse(raw) as unknown;
+        return Array.isArray(v) ? v.map(x => (typeof x === "number" && Number.isFinite(x) ? x : Number(x) || 0)) : [];
+    } catch {
+        return [];
+    }
+}
+
+/** Libellés X alignés sur `attrs.x` (ligne = années / nombres sérialisés comme dans le preview DSFR). */
+function chartLabelsJsonFromAttrs(computed: ChartAttributes, fallbackLabelsJson: string): string {
+    const raw = computed.attrs.x;
+    if (!raw) return fallbackLabelsJson;
+    try {
+        const parsed = JSON.parse(raw) as unknown;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+            const first = parsed[0];
+            if (Array.isArray(first)) return JSON.stringify(first);
+        }
+    } catch {
+        /* ignore */
+    }
+    return fallbackLabelsJson;
+}
+
+/**
+ * Bloc d'intégration **Sites Faciles** : conteneur + canvas + Chart.js (CDN),
+ * même principe que les snippets qui fonctionnent dans le CMS.
+ * Les web components @gouvfr/dsfr-chart ne sont en général pas disponibles sur
+ * la page d'article (chemins /static/ inexistants, pas de bundle Vue).
+ */
 export function buildExportSnippet(state: ChartState, computed: ChartAttributes): string {
-    const tag = computed.tagName;
+    const canvasId = `sfchart_${slugifyCanvasIdPart(state.title || "graph")}_${Date.now().toString(36)}`;
 
-    const attributesSerialized = Object.entries(computed.attrs)
-        .map(([k, v]) => "  " + renderAttr(k, v))
-        .join("\n");
-
-    const figcaption = state.source
-        ? `\n  <figcaption class="fr-text--sm fr-mt-2w">Source : ${escapeHtml(state.source)}</figcaption>`
-        : "";
-
-    const heading = state.title
-        ? `\n<h3 class="fr-h5">${escapeHtml(state.title)}</h3>`
+    const titleBlock = state.title.trim()
+        ? `\n      <h3 class="fr-h5 fr-mb-1w">${escapeHtml(state.title.trim())}</h3>`
         : "";
 
     const descriptionBlock =
         state.description.trim().length > 0
-            ? `\n<p class="fr-text--sm fr-mb-2w">${escapeHtml(state.description.trim())}</p>`
+            ? `\n      <p class="fr-text--sm fr-mb-2w" style="color:#666;white-space:pre-wrap;">${escapeHtml(state.description.trim())}</p>`
             : "";
 
+    const sourceBlock = state.source.trim()
+        ? `\n      <p class="fr-text--sm fr-mt-2w" style="color:#666;">Source : ${escapeHtml(state.source.trim())}</p>`
+        : "";
+
     const srTable = buildSrOnlyTable(state, computed);
+    const srTableIndented = indent(srTable, 6);
 
-    const dualAxisNote = computed.dualAxisActive
-        ? `\n<!--
-  Configuration double axe Y (yAxis multiple) :
-  - Axe gauche (y-bar) : ${escapeHtml(state.unit || "—")}
-  - Axe droit  (y-line): ${escapeHtml(state.unitSecondary || "—")}
-  La balise <bar-line-chart> instancie automatiquement les deux axes verticaux,
-  positionne la série "y-bar" sur l'axe principal et la série "y-line" sur
-  l'axe secondaire (rendu LIGNE forcé pour bien marquer la différence).
--->`
-        : "";
+    const labelsJson = JSON.stringify(computed.labels);
+    const chartScriptBody = buildSitesFacilesChartJsBody(state, computed, canvasId, labelsJson);
 
-    const yearNote = computed.yearAxisDetected
-        ? `\n<!--
-  Axe X détecté en "années" : les libellés sont passés en mode catégoriel
-  (string), garantissant qu'aucune valeur intermédiaire (ex : 2024,5) ni
-  séparateur de milliers (ex : 2 024) n'apparaisse au rendu.
--->`
-        : "";
+    return `<!-- Générateur de Graphiques DSFR en ligne — bloc Sites Faciles (Chart.js + canvas, compatible CMS) -->
+<div class="fr-container" style="background: #fff; padding: 20px; border: 1px solid #e5e5e5; font-family: 'Marianne', arial, sans-serif;">
+  <figure role="group" aria-label="${escapeHtml(state.title || "Graphique")}">${titleBlock}${descriptionBlock}
+    <div style="position: relative; height: 400px; width: 100%;">
+      <canvas id="${escapeHtml(canvasId)}" aria-label="${escapeHtml(state.title || "Graphique")}"></canvas>
+    </div>${sourceBlock}
+${srTableIndented}
+  </figure>
+</div>
 
-    const bootstrap = `<script>
-(function () {
-    if (window.customElements && window.customElements.get("${tag}")) return;
-    var s = document.createElement("script");
-    s.type = "module";
-    s.src = "/static/dsfr-chart/DSFRChart.js";
-    document.head.appendChild(s);
-    var l = document.createElement("link");
-    l.rel = "stylesheet";
-    l.href = "/static/dsfr-chart/DSFRChart.css";
-    document.head.appendChild(l);
-})();
-</script>`;
-
-    return `<!-- Générateur de Graphiques DSFR en ligne — bloc d'intégration prêt à coller -->${dualAxisNote}${yearNote}
-<figure class="fr-content-media" role="group" aria-label="${escapeHtml(state.title || "Graphique")}">
-${heading}${descriptionBlock}
-  <${tag}
-${attributesSerialized}
-  ></${tag}>
-${indent(srTable, 2)}${figcaption}
-</figure>
-
-${bootstrap}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+${chartScriptBody}
+</script>
 `;
+}
+
+/**
+ * Corps du script : init Chart.js après chargement du canvas.
+ * Généré en chaîne pour éviter toute dépendance runtime côté outil.
+ */
+function buildSitesFacilesChartJsBody(
+    state: ChartState,
+    computed: ChartAttributes,
+    canvasId: string,
+    labelsJson: string
+): string {
+    const unit = state.unit.trim();
+    const unitSec = state.unitSecondary.trim();
+    const type = state.chartType;
+
+    if (computed.tagName === "gauge-chart") {
+        const val = Number(computed.attrs.value) || 0;
+        const init = Number(computed.attrs.init) || 0;
+        const target = Number(computed.attrs.target) || 100;
+        const maxY = Math.max(target, val, init, 1);
+        const labelGauge = state.title.trim() || "Indicateur";
+        return `(function() {
+  var initChart = function() {
+    var canvas = document.getElementById(${JSON.stringify(canvasId)});
+    if (!canvas || typeof Chart === "undefined") return;
+    new Chart(canvas, {
+      type: "bar",
+      data: {
+        labels: [${JSON.stringify(labelGauge)}],
+        datasets: [{
+          label: ${JSON.stringify(unit ? "Valeur (" + unit + ")" : "Valeur")},
+          data: [${val}],
+          backgroundColor: "#000091",
+          hoverBackgroundColor: "#1212ff",
+          barThickness: 48
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: true } },
+        scales: {
+          x: { grid: { display: false }, ticks: { font: { family: "Marianne", size: 12 }, color: "#161616" } },
+          y: { beginAtZero: true, max: ${maxY}, ticks: { font: { family: "Marianne" } }, grid: { color: "#e5e5e5" } }
+        }
+      }
+    });
+  };
+  if (document.readyState === "complete") initChart();
+  else window.addEventListener("load", initChart);
+})();`;
+    }
+
+    if (computed.dualAxisActive) {
+        const yBar = parseJsonNumberArray(computed.attrs["y-bar"]);
+        const yLine = parseJsonNumberArray(computed.attrs["y-line"]);
+        const xLabelsJson = computed.attrs.x ?? labelsJson;
+        const dsBar = computed.series.find(s => s.axis === "left");
+        const dsLine = computed.series.find(s => s.axis === "right");
+        const nameBar = dsBar ? decorateName(dsBar.name, unit) : "Barres";
+        const nameLine = dsLine ? decorateName(dsLine.name, unitSec || unit) : "Ligne";
+        return `(function() {
+  var initChart = function() {
+    var canvas = document.getElementById(${JSON.stringify(canvasId)});
+    if (!canvas || typeof Chart === "undefined") return;
+    new Chart(canvas, {
+      type: "bar",
+      data: {
+        labels: ${xLabelsJson},
+        datasets: [
+          {
+            type: "bar",
+            label: ${JSON.stringify(nameBar)},
+            data: ${JSON.stringify(yBar)},
+            backgroundColor: "#000091",
+            hoverBackgroundColor: "#1212ff",
+            yAxisID: "y",
+            order: 2
+          },
+          {
+            type: "line",
+            label: ${JSON.stringify(nameLine)},
+            data: ${JSON.stringify(yLine)},
+            borderColor: "#E10110",
+            backgroundColor: "rgba(225,1,16,0.15)",
+            yAxisID: "y1",
+            tension: 0.2,
+            order: 1
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: "index", intersect: false },
+        plugins: {
+          legend: { display: true, labels: { font: { family: "Marianne", size: 12 } } },
+          tooltip: {
+            backgroundColor: "rgba(22, 22, 22, 0.9)",
+            padding: 12,
+            titleFont: { size: 14, weight: "bold", family: "Marianne" },
+            bodyFont: { size: 14, family: "Marianne" }
+          }
+        },
+        scales: {
+          x: { grid: { display: false }, ticks: { font: { family: "Marianne", size: 12 }, color: "#161616" } },
+          y: {
+            type: "linear",
+            position: "left",
+            title: { display: true, text: ${JSON.stringify(unit || "Axe gauche")}, font: { family: "Marianne", weight: "bold" } },
+            grid: { color: "#e5e5e5" },
+            beginAtZero: true
+          },
+          y1: {
+            type: "linear",
+            position: "right",
+            title: { display: true, text: ${JSON.stringify(unitSec || "Axe droit")}, font: { family: "Marianne", weight: "bold" } },
+            grid: { drawOnChartArea: false },
+            beginAtZero: true
+          }
+        }
+      }
+    });
+  };
+  if (document.readyState === "complete") initChart();
+  else window.addEventListener("load", initChart);
+})();`;
+    }
+
+    if (type === "pie" || type === "donut") {
+        const vals = (computed.series[0]?.values ?? []).map(v => (v === null ? 0 : v));
+        const cutout = type === "donut" ? "'55%'" : "0";
+        return `(function() {
+  var initChart = function() {
+    var canvas = document.getElementById(${JSON.stringify(canvasId)});
+    if (!canvas || typeof Chart === "undefined") return;
+    new Chart(canvas, {
+      type: "doughnut",
+      data: {
+        labels: ${labelsJson},
+        datasets: [{
+          label: ${JSON.stringify(state.unit ? "Valeur (" + state.unit + ")" : "Valeur")},
+          data: ${JSON.stringify(vals)},
+          backgroundColor: ${JSON.stringify([...SF_CHART_COLORS])},
+          hoverOffset: 6
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        cutout: ${cutout},
+        plugins: {
+          legend: { position: "right", labels: { font: { family: "Marianne", size: 12 } } },
+          tooltip: {
+            backgroundColor: "rgba(22, 22, 22, 0.9)",
+            padding: 12,
+            titleFont: { size: 14, weight: "bold", family: "Marianne" },
+            bodyFont: { size: 14, family: "Marianne" }
+          }
+        }
+      }
+    });
+  };
+  if (document.readyState === "complete") initChart();
+  else window.addEventListener("load", initChart);
+})();`;
+    }
+
+    if (type === "scatter") {
+        const xs = computed.labels.map((lab, i) => {
+            const n = toNumber(lab);
+            return n === null ? i : n;
+        });
+        const ys = (computed.series[0]?.values ?? []).map(v => (v === null ? 0 : v));
+        const pts = xs.map((x, i) => ({ x, y: ys[i] ?? 0 }));
+        return `(function() {
+  var initChart = function() {
+    var canvas = document.getElementById(${JSON.stringify(canvasId)});
+    if (!canvas || typeof Chart === "undefined") return;
+    new Chart(canvas, {
+      type: "scatter",
+      data: {
+        datasets: [{
+          label: ${JSON.stringify(computed.series[0]?.name ?? "Série")},
+          data: ${JSON.stringify(pts)},
+          backgroundColor: "#000091",
+          borderColor: "#000091",
+          pointRadius: 5
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: true } },
+        scales: {
+          x: { type: "linear", ticks: { font: { family: "Marianne" } }, grid: { color: "#e5e5e5" } },
+          y: { beginAtZero: true, title: { display: ${unit ? "true" : "false"}, text: ${JSON.stringify(unit)} }, ticks: { font: { family: "Marianne" } }, grid: { color: "#e5e5e5" } }
+        }
+      }
+    });
+  };
+  if (document.readyState === "complete") initChart();
+  else window.addEventListener("load", initChart);
+})();`;
+    }
+
+    if (type === "radar") {
+        const vals = (computed.series[0]?.values ?? []).map(v => (v === null ? 0 : v));
+        return `(function() {
+  var initChart = function() {
+    var canvas = document.getElementById(${JSON.stringify(canvasId)});
+    if (!canvas || typeof Chart === "undefined") return;
+    new Chart(canvas, {
+      type: "radar",
+      data: {
+        labels: ${labelsJson},
+        datasets: [{
+          label: ${JSON.stringify(computed.series[0]?.name ?? "Série")},
+          data: ${JSON.stringify(vals)},
+          borderColor: "#000091",
+          backgroundColor: "rgba(0,0,145,0.2)"
+        }]
+      },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: true } } }
+    });
+  };
+  if (document.readyState === "complete") initChart();
+  else window.addEventListener("load", initChart);
+})();`;
+    }
+
+    const barLineLabelsJson = chartLabelsJsonFromAttrs(computed, labelsJson);
+    return buildBarLineExportScript(type, computed, canvasId, barLineLabelsJson, unit);
+}
+
+function buildBarLineExportScript(
+    type: ChartType,
+    computed: ChartAttributes,
+    canvasId: string,
+    labelsJson: string,
+    unit: string
+): string {
+    const stacked = type === "bar-stacked";
+    const horizontal = type === "bar-horizontal";
+    const isLine = type === "line";
+
+    const datasets = computed.series.map((s, i) => {
+        const data = s.values.map(v => (v === null ? 0 : v));
+        const color = SF_CHART_COLORS[i % SF_CHART_COLORS.length]!;
+        const base: Record<string, unknown> = {
+            label: s.name,
+            data,
+            backgroundColor: isLine ? "transparent" : color,
+            borderColor: isLine ? color : color,
+            borderWidth: isLine ? 2 : 0,
+            fill: false,
+            tension: isLine ? 0.2 : 0
+        };
+        if (stacked) (base as { stack?: string }).stack = "s0";
+        if (!isLine) {
+            (base as { hoverBackgroundColor?: string }).hoverBackgroundColor = "#1212ff";
+            (base as { barThickness?: number }).barThickness = 50;
+        }
+        return base;
+    });
+
+    const chartType = isLine ? "line" : "bar";
+    const indexAxis = horizontal ? ", indexAxis: 'y'" : "";
+    const stackedOpts = stacked
+        ? ", scales: { x: { stacked: true, grid: { display: false }, ticks: { font: { family: 'Marianne', size: 12 }, color: '#161616' } }, y: { stacked: true, beginAtZero: true, grid: { color: '#e5e5e5' }, ticks: { font: { family: 'Marianne' } } } }"
+        : ", scales: { x: { grid: { display: false }, ticks: { font: { family: 'Marianne', size: 12 }, color: '#161616' } }, y: { beginAtZero: true, title: { display: " +
+          (unit ? "true" : "false") +
+          ", text: " +
+          JSON.stringify(unit) +
+          ", font: { weight: 'bold', family: 'Marianne' } }, grid: { color: '#e5e5e5' }, ticks: { font: { family: 'Marianne' } } } }";
+
+    const datasetsJson = JSON.stringify(datasets);
+
+    return `(function() {
+  var initChart = function() {
+    var canvas = document.getElementById(${JSON.stringify(canvasId)});
+    if (!canvas || typeof Chart === "undefined") return;
+    new Chart(canvas, {
+      type: ${JSON.stringify(chartType)},
+      data: {
+        labels: ${labelsJson},
+        datasets: ${datasetsJson}
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false${indexAxis ? indexAxis : ""},
+        plugins: {
+          legend: { display: ${computed.series.length > 1 ? "true" : "false"}, labels: { font: { family: "Marianne", size: 12 } } },
+          tooltip: {
+            backgroundColor: "rgba(22, 22, 22, 0.9)",
+            padding: 12,
+            titleFont: { size: 14, weight: "bold", family: "Marianne" },
+            bodyFont: { size: 14, family: "Marianne" }
+          }
+        }${stackedOpts}
+      }
+    });
+  };
+  if (document.readyState === "complete") initChart();
+  else window.addEventListener("load", initChart);
+})();`;
 }
