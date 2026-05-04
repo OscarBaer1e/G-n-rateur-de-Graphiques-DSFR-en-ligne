@@ -59,6 +59,11 @@ export interface DataRow {
 
 export interface ChartState {
     title: string;
+    /**
+     * Texte court sous le titre, au-dessus du graphique (optionnel).
+     * Non affiché si vide ou uniquement des espaces.
+     */
+    description: string;
     /** Unité de l'axe Y principal (gauche). Ex : M€, t, kWh… */
     unit: string;
     /** Unité de l'axe Y secondaire (droite). Ex : %, °C… */

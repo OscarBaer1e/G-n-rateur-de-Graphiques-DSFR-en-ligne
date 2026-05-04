@@ -70,6 +70,12 @@ export function ChartPreview({ state }: Props): JSX.Element {
 
             {state.title && <h3 className="fr-h5 fr-mb-2w">{state.title}</h3>}
 
+            {state.description.trim().length > 0 && (
+                <p className="fr-text--sm gb-chart-description fr-mb-2w">
+                    {state.description.trim()}
+                </p>
+            )}
+
             <div className="gb-preview-flags">
                 {computed.dualAxisActive && (
                     <span className="gb-flag gb-flag--info">

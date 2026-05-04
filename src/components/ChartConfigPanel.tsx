@@ -50,6 +50,23 @@ export function ChartConfigPanel({ state, onPatch }: Props): JSX.Element {
                     />
                 </div>
 
+                <div className="fr-input-group" style={{ gridColumn: "1 / -1" }}>
+                    <label className="fr-label" htmlFor="cfg-description">
+                        Description <span className="fr-hint-text">(optionnel)</span>
+                        <span className="fr-hint-text">
+                            Affichée entre le titre et le graphique uniquement si renseignée.
+                        </span>
+                    </label>
+                    <textarea
+                        className="fr-input"
+                        id="cfg-description"
+                        rows={2}
+                        value={state.description}
+                        onChange={e => onPatch({ description: e.target.value })}
+                        placeholder="Ex : Données provisoires — mise à jour trimestrielle."
+                    />
+                </div>
+
                 <div className="fr-input-group">
                     <label className="fr-label" htmlFor="cfg-unit">
                         Unité — axe gauche

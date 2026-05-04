@@ -43,6 +43,7 @@ function makeInitialState(): ChartState {
 
     return {
         title: "Recettes douanières par produit",
+        description: "",
         unit: "M€",
         unitSecondary: "%",
         source: "DGDDI — Bilan annuel",

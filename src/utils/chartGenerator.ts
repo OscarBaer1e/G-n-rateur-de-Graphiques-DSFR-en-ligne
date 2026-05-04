@@ -476,6 +476,11 @@ export function buildExportSnippet(state: ChartState, computed: ChartAttributes)
         ? `\n<h3 class="fr-h5">${escapeHtml(state.title)}</h3>`
         : "";
 
+    const descriptionBlock =
+        state.description.trim().length > 0
+            ? `\n<p class="fr-text--sm fr-mb-2w">${escapeHtml(state.description.trim())}</p>`
+            : "";
+
     const srTable = buildSrOnlyTable(state, computed);
 
     const dualAxisNote = computed.dualAxisActive
@@ -513,7 +518,7 @@ export function buildExportSnippet(state: ChartState, computed: ChartAttributes)
 
     return `<!-- Générateur de Graphiques DSFR en ligne — bloc d'intégration prêt à coller -->${dualAxisNote}${yearNote}
 <figure class="fr-content-media" role="group" aria-label="${escapeHtml(state.title || "Graphique")}">
-${heading}
+${heading}${descriptionBlock}
   <${tag}
 ${attributesSerialized}
   ></${tag}>

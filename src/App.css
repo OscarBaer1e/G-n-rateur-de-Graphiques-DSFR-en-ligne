@@ -253,6 +253,13 @@ button.gb-icon-btn:focus {
 
 /* ----- Preview ----- */
 
+/* Texte descriptif optionnel sous le titre (aperçu + export) */
+.gb-chart-description {
+    color: var(--text-mention-grey);
+    max-width: 52rem;
+    white-space: pre-wrap;
+}
+
 .gb-preview-host {
     background: var(--background-alt-grey);
     border-radius: 4px;
