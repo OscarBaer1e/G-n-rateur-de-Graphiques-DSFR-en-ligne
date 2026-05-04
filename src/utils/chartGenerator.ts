@@ -141,9 +141,14 @@ export function buildChartAttributes(state: ChartState): ChartAttributes {
     const meta = getChartMeta(state);
 
     const labelCol = state.columns.find(c => c.isLabel) ?? state.columns[0];
-    const seriesCols = state.columns.filter(c => !c.isLabel);
+    const seriesColsAll = state.columns.filter(c => !c.isLabel);
+    /** Camembert / donut : une seule série de valeurs (parts d'un même tout). */
+    const isSectorChart = state.chartType === "pie" || state.chartType === "donut";
+    const seriesCols = isSectorChart ? seriesColsAll.slice(0, 1) : seriesColsAll;
 
-    const labels = state.rows.map(r => rowCategoryLabel(r, labelCol));
+    const labels = isSectorChart
+        ? state.rows.map(r => (labelCol ? (r.cells[labelCol.id] ?? "").trim() : ""))
+        : state.rows.map(r => rowCategoryLabel(r, labelCol));
 
     const yearAxisDetected = looksLikeYearAxis(labels);
 

@@ -474,3 +474,28 @@ button.gb-axis-toggle.gb-axis-toggle--right:hover {
     color: var(--text-action-high-blue-france);
     border-color: var(--border-default-blue-france);
 }
+
+/* -------------------------------------------------------------------------- */
+/* Éditeur dédié camembert / donut                                             */
+/* -------------------------------------------------------------------------- */
+
+.gb-pie-editor .gb-pie-th {
+    min-width: 140px;
+}
+
+table.gb-data-table--pie thead th {
+    background-color: var(--background-alt-pink-tuile);
+    color: var(--text-title-grey);
+    border-bottom-color: var(--border-plain-grey);
+}
+
+table.gb-data-table--pie thead th input.gb-col-name {
+    color: inherit;
+    font-weight: 700;
+}
+
+table.gb-data-table--pie thead th input.gb-col-name:hover,
+table.gb-data-table--pie thead th input.gb-col-name:focus {
+    border-color: var(--border-default-grey);
+    background: var(--background-default-grey);
+}

@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import type { ChartState, DataColumn, DataRow, SeriesAxis } from "../types";
 import { parseClipboard } from "../utils/clipboard";
+import { PieDonutDataEditor } from "./PieDonutDataEditor";
 
 interface Props {
     state: ChartState;
@@ -31,7 +32,7 @@ const makeRow = (cols: DataColumn[], values?: string[]): DataRow => {
     return { id: newId(), rowLead: "", cells };
 };
 
-export function DataEditorComponent({
+function StandardDataEditor({
     state,
     onColumnsChange,
     onRowsChange,
@@ -455,4 +456,11 @@ const DataRowView = memo(function DataRowView({
     );
 });
 
-export const DataEditor = memo(DataEditorComponent);
+function DataEditorRouter(props: Props): JSX.Element {
+    if (props.state.chartType === "pie" || props.state.chartType === "donut") {
+        return <PieDonutDataEditor {...props} />;
+    }
+    return <StandardDataEditor {...props} />;
+}
+
+export const DataEditor = memo(DataEditorRouter);
