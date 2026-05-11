@@ -2,12 +2,8 @@
 // Export HTML pour Sites Faciles : ECharts (CDN) + style dataviz proche DSFR
 // + tableau fr-table fr-sr-only (RGAA). L’aperçu dans l’app reste sur @gouvfr/dsfr-chart.
 
-import type { ChartState, DsfrPalette } from "../types";
-import {
-    buildSrOnlyTable,
-    decorateSeriesName,
-    type ChartAttributes
-} from "./chartGenerator";
+import type { ChartState, ChartType, DsfrPalette } from "../types";
+import { buildSrOnlyTable, type ChartAttributes } from "./chartGenerator";
 
 const ECHARTS_CDN = "https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js";
 
@@ -51,8 +47,32 @@ function escapeHtml(input: string): string {
         .replace(/'/g, "&#39;");
 }
 
+function decorateName(name: string, unit: string): string {
+    const u = unit.trim();
+    if (u.length === 0) return name;
+    if (name.includes(u)) return name;
+    return `${name} (${u})`;
+}
+
 function safeJsonForScript(obj: unknown): string {
     return JSON.stringify(obj).replace(/</g, "\\u003c");
+}
+
+/** Métadonnées sérialisables : les formatters d’infobulle ne passent pas par JSON.stringify. */
+interface EChartsUnitsMeta {
+    unit: string;
+    unitSecondary: string;
+    dualAxis: boolean;
+    kind: ChartType;
+}
+
+function buildUnitsMeta(state: ChartState, computed: ChartAttributes): EChartsUnitsMeta {
+    return {
+        unit: state.unit.trim(),
+        unitSecondary: state.unitSecondary.trim(),
+        dualAxis: computed.dualAxisActive,
+        kind: state.chartType
+    };
 }
 
 function indent(text: string, count: number): string {
@@ -71,10 +91,10 @@ function chartDomId(state: ChartState): string {
         .replace(/[^a-z0-9]+/g, "-")
         .replace(/(^-|-$)/g, "") || "graphique";
     if (!/^[a-z]/i.test(slug)) slug = "g-" + slug;
-    let h = 0;
-    const seed = `${state.title}|${state.rows.length}|${state.chartType}`;
-    for (let i = 0; i < seed.length; i++) h = ((h << 5) - h + seed.charCodeAt(i)) | 0;
-    const suffix = Math.abs(h).toString(36).slice(0, 8);
+    // IMPORTANT : ID volontairement unique à chaque export copié.
+    // En CMS, des IDs déterministes peuvent entrer en collision entre blocs
+    // et faire lire la mauvaise configuration (impression de "toujours le même graphe").
+    const suffix = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
     const id = `dsfr-ec-${slug}-${suffix}`.replace(/[^a-zA-Z0-9-]/g, "");
     return id.length > 90 ? id.slice(0, 90) : id;
 }
@@ -115,19 +135,72 @@ const baseGrid = {
     containLabel: true
 };
 
+function parseJsonAttr<T>(raw: string | undefined, fallback: T): T {
+    if (!raw) return fallback;
+    try {
+        return JSON.parse(raw) as T;
+    } catch {
+        return fallback;
+    }
+}
+
+function uniqueLegend(items: string[]): string[] {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const it of items) {
+        const name = it.trim();
+        if (name.length === 0) continue;
+        if (seen.has(name)) continue;
+        seen.add(name);
+        out.push(name);
+    }
+    return out;
+}
+
+function colorAt(colors: string[], index: number): string {
+    if (colors.length === 0) return "#000091";
+    return colors[index % colors.length] ?? "#000091";
+}
+
+function normalizeCategoryX(raw: unknown): string[] {
+    if (!Array.isArray(raw)) return [""];
+    if (raw.length === 0) return [""];
+    const first = raw[0];
+    if (Array.isArray(first)) {
+        const inner = first as unknown[];
+        return inner.map(v => String(v ?? ""));
+    }
+    return (raw as unknown[]).map(v => String(v ?? ""));
+}
+
+function normalizeSeriesY(raw: unknown): (number | null)[][] {
+    if (!Array.isArray(raw) || raw.length === 0) return [[0]];
+    return (raw as unknown[]).map(line => {
+        if (!Array.isArray(line)) return [0];
+        return line.map(v => {
+            if (v === null || v === undefined || v === "") return null;
+            const n = Number(v);
+            return Number.isFinite(n) ? n : null;
+        });
+    });
+}
+
 function buildOption(state: ChartState, computed: ChartAttributes): Record<string, unknown> {
     const colors = paletteColors(state.palette);
     const labels = computed.labels.map(l => (l.trim() === "" ? " " : l.trim()));
+    const names = parseJsonAttr<string[]>(computed.attrs.name, []);
 
     if (computed.tagName === "gauge-chart") {
         const v = Number(computed.attrs.value ?? state.gaugeInit);
         const min = state.gaugeInit;
         const max = state.gaugeTarget;
-        const name = computed.series[0]?.name
-            ? decorateSeriesName(computed.series[0].name, state.unit)
-            : state.unit.trim()
-            ? `Valeur (${state.unit.trim()})`
-            : "Valeur";
+        const name =
+            names[0] ??
+            (computed.series[0]?.name
+                ? decorateName(computed.series[0].name, state.unit)
+                : state.unit.trim()
+                ? `Valeur (${state.unit.trim()})`
+                : "Valeur");
         return {
             color: colors,
             tooltip: {
@@ -140,10 +213,11 @@ function buildOption(state: ChartState, computed: ChartAttributes): Record<strin
                 },
                 borderWidth: 0
             },
-            legend: { ...baseLegend, data: [name] },
+            legend: { ...baseLegend, data: uniqueLegend([name]) },
             series: [
                 {
                     type: "gauge",
+                    itemStyle: { color: colorAt(colors, 0) },
                     min,
                     max,
                     detail: {
@@ -158,20 +232,20 @@ function buildOption(state: ChartState, computed: ChartAttributes): Record<strin
     }
 
     if (computed.dualAxisActive) {
-        const left = computed.series.find(s => s.axis === "left");
-        const right = computed.series.find(s => s.axis === "right");
-        const yBar = (left?.values ?? []).map(v => (v === null ? null : v));
-        const yLine = (right?.values ?? []).map(v => (v === null ? null : v));
-        const barName = left ? decorateSeriesName(left.name, state.unit) : "Série 1";
-        const lineName = right ? decorateSeriesName(right.name, state.unitSecondary) : "Série 2";
+        const x = normalizeCategoryX(parseJsonAttr<unknown[]>(computed.attrs.x, []));
+        const yBar = parseJsonAttr<(number | null)[]>(computed.attrs["y-bar"], x.map(() => 0));
+        const yLine = parseJsonAttr<(number | null)[]>(computed.attrs["y-line"], x.map(() => 0));
+        const barName = names[0] ?? "Série 1";
+        const lineName = names[1] ?? "Série 2";
+        const legendData = [barName, lineName];
         return {
             color: colors,
             tooltip: { ...baseTooltipAxis, trigger: "axis" },
-            legend: { ...baseLegend, data: [barName, lineName] },
+            legend: { ...baseLegend, data: legendData.length > 0 ? legendData : ["Série 1", "Série 2"] },
             grid: baseGrid,
             xAxis: {
                 type: "category",
-                data: labels,
+                data: x.length > 0 ? x : labels,
                 axisLabel: { ...textStyleAxis },
                 axisLine: { lineStyle: { color: "#DDDDDD" } },
                 axisTick: { show: false }
@@ -200,6 +274,7 @@ function buildOption(state: ChartState, computed: ChartAttributes): Record<strin
                 {
                     name: barName,
                     type: "bar",
+                    itemStyle: { color: colorAt(colors, 0) },
                     yAxisIndex: 0,
                     barGap: "15%",
                     data: yBar
@@ -207,6 +282,8 @@ function buildOption(state: ChartState, computed: ChartAttributes): Record<strin
                 {
                     name: lineName,
                     type: "line",
+                    itemStyle: { color: colorAt(colors, 1) },
+                    lineStyle: { color: colorAt(colors, 1), width: 2 },
                     yAxisIndex: 1,
                     smooth: false,
                     data: yLine
@@ -216,14 +293,16 @@ function buildOption(state: ChartState, computed: ChartAttributes): Record<strin
     }
 
     if (state.chartType === "pie" || state.chartType === "donut") {
-        const s0 = computed.series[0];
-        const data = labels.map((name, i) => ({
-            name,
-            value: s0 ? (s0.values[i] ?? 0) : 0
+        const x = normalizeCategoryX(parseJsonAttr<unknown[]>(computed.attrs.x, [labels]));
+        const y = normalizeSeriesY(parseJsonAttr<unknown[]>(computed.attrs.y, [[0]]));
+        const values = y[0] ?? [];
+        const data = x.map((name, i) => ({
+            name: (names[i] ?? name).trim() || `Secteur ${i + 1}`,
+            value: values[i] ?? 0
         }));
         const radius =
             state.chartType === "donut" ? (["45%", "70%"] as const) : ("70%" as const);
-        const legendNames = data.map(d => d.name);
+        const legendNames = uniqueLegend(data.map(d => d.name));
         return {
             color: colors,
             tooltip: {
@@ -239,7 +318,7 @@ function buildOption(state: ChartState, computed: ChartAttributes): Record<strin
             legend: {
                 ...baseLegend,
                 orient: "horizontal",
-                data: legendNames.length > 0 ? legendNames : [""]
+                data: legendNames.length > 0 ? legendNames : ["Secteur"]
             },
             series: [
                 {
@@ -253,11 +332,13 @@ function buildOption(state: ChartState, computed: ChartAttributes): Record<strin
     }
 
     if (state.chartType === "radar") {
-        const labs = labels.length > 0 ? labels : [""];
-        const rSeries =
-            computed.series.length > 0
-                ? computed.series
-                : [{ name: "—", axis: "left" as const, values: labs.map(() => null) }];
+        const x = normalizeCategoryX(parseJsonAttr<unknown[]>(computed.attrs.x, [labels]));
+        const y = normalizeSeriesY(parseJsonAttr<unknown[]>(computed.attrs.y, [[0]]));
+        const labs = x.length > 0 ? x : [""];
+        const rSeries = y.map((vals, i) => ({
+            name: names[i] ?? `Série ${i + 1}`,
+            values: vals
+        }));
         const valsPerInd = labs.map((_, i) =>
             Math.max(
                 1,
@@ -268,10 +349,11 @@ function buildOption(state: ChartState, computed: ChartAttributes): Record<strin
             name,
             max: Math.ceil((valsPerInd[i] ?? 1) * 1.15)
         }));
+        const legendData = uniqueLegend(rSeries.map(s => s.name));
         return {
             color: colors,
             tooltip: {},
-            legend: { ...baseLegend, data: rSeries.map(s => decorateSeriesName(s.name, state.unit)) },
+            legend: { ...baseLegend, data: legendData.length > 0 ? legendData : ["Série"] },
             radar: {
                 indicator: indicators,
                 axisName: { fontFamily: "Marianne, sans-serif", color: "#666666" }
@@ -279,9 +361,10 @@ function buildOption(state: ChartState, computed: ChartAttributes): Record<strin
             series: [
                 {
                     type: "radar",
-                    data: rSeries.map(s => ({
+                    data: rSeries.map((s, i) => ({
                         value: s.values.map(v => (v === null ? 0 : v)),
-                        name: decorateSeriesName(s.name, state.unit)
+                        name: s.name.trim().length > 0 ? s.name : "Série",
+                        itemStyle: { color: colorAt(colors, i) }
                     }))
                 }
             ]
@@ -289,31 +372,41 @@ function buildOption(state: ChartState, computed: ChartAttributes): Record<strin
     }
 
     if (state.chartType === "scatter") {
-        const scSeries =
-            computed.series.length > 0
-                ? computed.series
-                : [{ name: "—", axis: "left" as const, values: labels.map(() => null) }];
-        const seriesList = scSeries.map(s => ({
-            name: decorateSeriesName(s.name, state.unit),
+        const xRaw = parseJsonAttr<unknown[]>(computed.attrs.x, []);
+        const yRaw = normalizeSeriesY(parseJsonAttr<unknown[]>(computed.attrs.y, [[0]]));
+        const xPerSeries = Array.isArray(xRaw) ? xRaw : [];
+        const x = normalizeCategoryX(xRaw);
+
+        const seriesList = yRaw.map((vals, i) => ({
+            name: names[i] ?? `Série ${i + 1}`,
             type: (state.showLine ? "line" : "scatter") as "line" | "scatter",
-            data: s.values.map(v => (v === null ? null : v)),
+            data: vals.map((v, idx) => {
+                const xs = Array.isArray(xPerSeries[i]) ? (xPerSeries[i] as unknown[]) : x;
+                const xv = xs[idx];
+                const xLabel = xv === undefined ? String(idx) : String(xv);
+                return [xLabel, v] as [string, number | null];
+            }),
             symbolSize: state.showLine ? 8 : 10,
             showSymbol: true,
             smooth: false,
-            lineStyle: state.showLine ? { width: 2 } : undefined
+            itemStyle: { color: colorAt(colors, i) },
+            lineStyle: state.showLine
+                ? { color: colorAt(colors, i), width: 2 }
+                : undefined
         }));
+        const legendData = uniqueLegend(seriesList.map(s => s.name));
         return {
             color: colors,
             tooltip: { ...baseTooltipAxis },
             legend: {
                 ...baseLegend,
-                data: scSeries.map(s => decorateSeriesName(s.name, state.unit))
+                data: legendData.length > 0 ? legendData : ["Série"]
             },
             grid: baseGrid,
             xAxis: {
                 type: "category",
-                data: labels.length > 0 ? labels : [""],
-                axisLabel: { ...textStyleAxis, rotate: labels.some(l => l.length > 8) ? 30 : 0 },
+                data: x.length > 0 ? x : [""],
+                axisLabel: { ...textStyleAxis, rotate: x.some(l => l.length > 8) ? 30 : 0 },
                 axisLine: { lineStyle: { color: "#DDDDDD" } },
                 axisTick: { show: false }
             },
@@ -329,21 +422,21 @@ function buildOption(state: ChartState, computed: ChartAttributes): Record<strin
     }
 
     if (state.chartType === "bar-horizontal") {
-        const hSeries =
-            computed.series.length > 0
-                ? computed.series
-                : [{ name: "—", axis: "left" as const, values: labels.map(() => null) }];
-        const seriesList = hSeries.map(s => ({
-            name: decorateSeriesName(s.name, state.unit),
+        const x = normalizeCategoryX(parseJsonAttr<unknown[]>(computed.attrs.x, [labels]));
+        const y = normalizeSeriesY(parseJsonAttr<unknown[]>(computed.attrs.y, [[0]]));
+        const seriesList = y.map((vals, i) => ({
+            name: names[i] ?? `Série ${i + 1}`,
             type: "bar" as const,
-            data: s.values.map(v => (v === null ? null : v))
+            itemStyle: { color: colorAt(colors, i) },
+            data: vals
         }));
+        const legendData = uniqueLegend(seriesList.map(s => s.name));
         return {
             color: colors,
             tooltip: baseTooltipAxis,
             legend: {
                 ...baseLegend,
-                data: hSeries.map(s => decorateSeriesName(s.name, state.unit))
+                data: legendData.length > 0 ? legendData : ["Série"]
             },
             grid: { ...baseGrid, left: "8%" },
             xAxis: {
@@ -355,7 +448,7 @@ function buildOption(state: ChartState, computed: ChartAttributes): Record<strin
             },
             yAxis: {
                 type: "category",
-                data: labels.length > 0 ? labels : [""],
+                data: x.length > 0 ? x : [""],
                 axisLabel: textStyleAxis,
                 axisLine: { lineStyle: { color: "#DDDDDD" } },
                 axisTick: { show: false }
@@ -366,33 +459,42 @@ function buildOption(state: ChartState, computed: ChartAttributes): Record<strin
 
     const isLine = state.chartType === "line";
     const stacked = state.chartType === "bar-stacked";
-    const seriesSrc =
-        computed.series.length > 0
-            ? computed.series
-            : [{ name: "—", axis: "left" as const, values: labels.map(() => null) }];
-    const seriesList = seriesSrc.map(s => ({
-        name: decorateSeriesName(s.name, state.unit),
+    const xRaw = parseJsonAttr<unknown[]>(computed.attrs.x, [labels]);
+    const yRaw = normalizeSeriesY(parseJsonAttr<unknown[]>(computed.attrs.y, [[0]]));
+    const x = normalizeCategoryX(xRaw);
+
+    const seriesList = yRaw.map((vals, i) => ({
+        name: names[i] ?? `Série ${i + 1}`,
         type: (isLine ? "line" : "bar") as "line" | "bar",
         stack: stacked ? "total" : undefined,
         barGap: isLine ? undefined : "15%",
         smooth: false,
-        data: s.values.map(v => (v === null ? null : v))
+        itemStyle: { color: colorAt(colors, i) },
+        lineStyle: isLine ? { color: colorAt(colors, i), width: 2 } : undefined,
+        data: vals
     }));
 
+    const longXLabels = x.some(l => l.length > 10);
+    const manySeries = seriesList.length >= 3;
+    const gridBottom = longXLabels || manySeries ? "20%" : "16%";
+
+    const legendData = uniqueLegend(seriesList.map(s => s.name));
     return {
         color: colors,
         tooltip: baseTooltipAxis,
         legend: {
             ...baseLegend,
-            data: seriesSrc.map(s => decorateSeriesName(s.name, state.unit))
+            type: "scroll",
+            left: "center",
+            data: legendData.length > 0 ? legendData : ["Série"]
         },
-        grid: baseGrid,
+        grid: { ...baseGrid, bottom: gridBottom },
         xAxis: {
             type: "category",
-            data: labels,
+            data: x,
             axisLabel: {
                 ...textStyleAxis,
-                rotate: labels.some(l => l.length > 10) ? 35 : 0
+                rotate: x.some(l => l.length > 10) ? 35 : 0
             },
             axisLine: { lineStyle: { color: "#DDDDDD" } },
             axisTick: { show: false }
@@ -411,8 +513,10 @@ function buildOption(state: ChartState, computed: ChartAttributes): Record<strin
 export function buildEChartsExportSnippet(state: ChartState, computed: ChartAttributes): string {
     const domId = chartDomId(state);
     const optionId = `${domId}-option`;
+    const unitsId = `${domId}-units`;
     const option = buildOption(state, computed);
     const optionJson = safeJsonForScript(option);
+    const unitsJson = safeJsonForScript(buildUnitsMeta(state, computed));
 
     const heading = state.title
         ? `\n  <h3 class="fr-h5">${escapeHtml(state.title)}</h3>`
@@ -446,17 +550,115 @@ ${indent(srTable, 2)}${figcaption}
 <!-- 3. Moteur ECharts (CDN jsDelivr) -->
 <script src="${ECHARTS_CDN}"></script>
 <script type="application/json" id="${escapeHtml(optionId)}">${optionJson}</script>
-<!-- 4. Initialisation (style dataviz DSFR dans l’objet option JSON ci-dessus) -->
+<script type="application/json" id="${escapeHtml(unitsId)}">${unitsJson}</script>
+<!-- 4. Initialisation (infobulles avec unités M€ / % : définies ici car JSON.stringify supprime les fonctions) -->
 <script>
-document.addEventListener("DOMContentLoaded", function () {
-  var chartDom = document.getElementById("${escapeHtml(domId)}");
-  var optNode = document.getElementById("${escapeHtml(optionId)}");
-  if (!chartDom || typeof echarts === "undefined" || !optNode) return;
-  var myChart = echarts.init(chartDom);
-  var option = JSON.parse(optNode.textContent || "{}");
-  if (option) myChart.setOption(option);
-  window.addEventListener("resize", function () { myChart.resize(); });
-});
+(function () {
+  function suffix(v, u) {
+    if (v === null || v === undefined || v === "") return "";
+    return u ? String(v) + " " + u : String(v);
+  }
+  /** Valeur scalaire exploitable depuis params.value (scatter [x,y], etc.). */
+  function scalarFromTooltipParam(p) {
+    var val = p.value;
+    if (Array.isArray(val)) {
+      var last = val[val.length - 1];
+      if (typeof last === "number") return last;
+      var num = Number(last);
+      return isNaN(num) ? last : num;
+    }
+    return val;
+  }
+  function applyDsfrEchartUnits(option, meta) {
+    if (!option || !meta) return;
+    var u0 = meta.unit || "";
+    var u1 = meta.unitSecondary || "";
+    var kind = meta.kind;
+    var dual = !!meta.dualAxis;
+    var tt = option.tooltip || (option.tooltip = {});
+
+    if (kind === "gauge") {
+      var gs = option.series && option.series[0];
+      if (gs && gs.type === "gauge") {
+        if (gs.detail) gs.detail.formatter = u0 ? "{value} " + u0 : "{value}";
+        tt.formatter = function (p) {
+          var name = (p.seriesName || "").trim();
+          var vs = suffix(p.value, u0);
+          return name ? p.marker + name + "<br/>" + vs : p.marker + vs;
+        };
+      }
+      return;
+    }
+
+    if (kind === "pie" || kind === "donut") {
+      tt.formatter = function (p) {
+        return p.marker + p.name + ": " + suffix(p.value, u0);
+      };
+      return;
+    }
+
+    if (kind === "radar") {
+      tt.trigger = "item";
+      tt.formatter = function (params) {
+        var ind = (option.radar && option.radar.indicator) || [];
+        var vals = params.value || [];
+        var lines = [(params.marker || "") + (params.seriesName || "")];
+        for (var i = 0; i < vals.length; i++) {
+          var nm = ind[i] && ind[i].name ? ind[i].name : "—";
+          lines.push(nm + ": " + suffix(vals[i], u0));
+        }
+        return lines.join("<br/>");
+      };
+      return;
+    }
+
+    if (dual && tt.trigger === "axis") {
+      tt.formatter = function (params) {
+        if (!Array.isArray(params)) return "";
+        return params
+          .map(function (p) {
+            var unit = p.seriesType === "bar" ? u0 : u1;
+            return p.marker + p.seriesName + ": " + suffix(p.value, unit);
+          })
+          .join("<br/>");
+      };
+      return;
+    }
+
+    if (tt.trigger === "axis") {
+      tt.formatter = function (params) {
+        if (!Array.isArray(params)) return "";
+        return params
+          .map(function (p) {
+            var v = scalarFromTooltipParam(p);
+            var num = typeof v === "number" ? v : Number(v);
+            var display = typeof num === "number" && !isNaN(num) ? num : v;
+            return p.marker + p.seriesName + ": " + suffix(display, u0);
+          })
+          .join("<br/>");
+      };
+    }
+  }
+  function bootDsfrEchart() {
+    var chartDom = document.getElementById("${escapeHtml(domId)}");
+    var optNode = document.getElementById("${escapeHtml(optionId)}");
+    var unitsNode = document.getElementById("${escapeHtml(unitsId)}");
+    if (!chartDom || typeof echarts === "undefined" || !optNode) return;
+    var myChart = echarts.init(chartDom);
+    var option = JSON.parse(optNode.textContent || "{}");
+    var meta = unitsNode ? JSON.parse(unitsNode.textContent || "{}") : {};
+    applyDsfrEchartUnits(option, meta);
+    if (option) myChart.setOption(option);
+    window.addEventListener("resize", function () {
+      myChart.resize();
+    });
+  }
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", bootDsfrEchart, { once: true });
+  } else {
+    bootDsfrEchart();
+  }
+})();
 </script>`;
 
     return figureBlock;

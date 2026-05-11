@@ -4,8 +4,9 @@ import { Check, Code2, Copy, Download } from "lucide-react";
 import type { ChartState } from "../types";
 import { buildChartAttributes, buildExportSnippet } from "../utils/chartGenerator";
 import { buildEChartsExportSnippet } from "../utils/echartsExport";
+import { buildChartJsExportSnippet } from "../utils/chartJsExport";
 
-type ExportEngine = "echarts" | "webcomponents";
+type ExportEngine = "echarts" | "webcomponents" | "chartjs";
 
 interface Props {
     state: ChartState;
@@ -17,9 +18,9 @@ export function ExportPanel({ state }: Props): JSX.Element {
 
     const snippet = useMemo(() => {
         const computed = buildChartAttributes(state);
-        return engine === "echarts"
-            ? buildEChartsExportSnippet(state, computed)
-            : buildExportSnippet(state, computed);
+        if (engine === "echarts") return buildEChartsExportSnippet(state, computed);
+        if (engine === "chartjs") return buildChartJsExportSnippet(state, computed);
+        return buildExportSnippet(state, computed);
     }, [state, engine]);
 
     const handleCopy = async (): Promise<void> => {
@@ -49,7 +50,13 @@ export function ExportPanel({ state }: Props): JSX.Element {
                 .replace(/[\u0300-\u036f]/g, "")
                 .replace(/[^a-z0-9]+/g, "-")
                 .replace(/(^-|-$)/g, "") || "graphique-dsfr";
-        a.download = `${safeTitle}${engine === "echarts" ? "-echarts" : "-dsfr-wc"}.html`;
+        const suffix =
+            engine === "echarts"
+                ? "-echarts"
+                : engine === "chartjs"
+                ? "-chartjs"
+                : "-dsfr-wc";
+        a.download = `${safeTitle}${suffix}.html`;
         a.click();
         URL.revokeObjectURL(url);
     };
@@ -84,6 +91,22 @@ export function ExportPanel({ state }: Props): JSX.Element {
                     <div className="fr-radio-group fr-mt-2w">
                         <input
                             type="radio"
+                            id="export-engine-chartjs"
+                            name="export-engine"
+                            checked={engine === "chartjs"}
+                            onChange={() => setEngine("chartjs")}
+                        />
+                        <label className="fr-label" htmlFor="export-engine-chartjs">
+                            Chart.js (test de compatibilité CMS)
+                            <span className="fr-hint-text">
+                                Troisième mode pour comparer le rendu ou l&apos;interpréteur JS du CMS
+                                avec une autre bibliothèque.
+                            </span>
+                        </label>
+                    </div>
+                    <div className="fr-radio-group fr-mt-2w">
+                        <input
+                            type="radio"
                             id="export-engine-wc"
                             name="export-engine"
                             checked={engine === "webcomponents"}
@@ -106,6 +129,11 @@ export function ExportPanel({ state }: Props): JSX.Element {
                         Bloc autonome : figure, graphique dans une <code>div</code>, tableau
                         d’accessibilité, puis scripts (ECharts puis initialisation). Polices Marianne
                         si le thème du site ne les charge pas déjà.
+                    </>
+                ) : engine === "chartjs" ? (
+                    <>
+                        Bloc autonome test en <code>Chart.js</code> (canvas + config JSON), utile
+                        pour isoler les problèmes d&apos;intégration propres à Sites Faciles.
                     </>
                 ) : (
                     <>

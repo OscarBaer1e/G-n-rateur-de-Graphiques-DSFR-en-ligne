@@ -180,7 +180,7 @@ export function buildChartAttributes(state: ChartState): ChartAttributes {
 
         const gaugeLegendName =
             firstSeries !== undefined
-                ? decorateSeriesName(firstSeries.name, state.unit)
+                ? decorateName(firstSeries.name, state.unit)
                 : state.title.trim().length > 0
                 ? state.title.trim()
                 : state.unit.trim().length > 0
@@ -245,12 +245,16 @@ export function buildChartAttributes(state: ChartState): ChartAttributes {
         // Légende : suffixe de l'unité pour distinguer visuellement les axes.
         const decoratedNames: string[] = [];
         if (leftSeries[0]) {
-            decoratedNames.push(decorateSeriesName(leftSeries[0].name, state.unit));
+            decoratedNames.push(decorateName(leftSeries[0].name, state.unit));
         }
         if (rightSeries[0]) {
-            decoratedNames.push(decorateSeriesName(rightSeries[0].name, state.unitSecondary));
+            decoratedNames.push(decorateName(rightSeries[0].name, state.unitSecondary));
         }
-        if (decoratedNames.length > 0) attrs.name = JSON.stringify(decoratedNames);
+        // bar-line-chart est plus stable avec exactement 2 entrées de légende
+        // (gauche puis droite), même si les libellés se ressemblent.
+        const leftLegend = decoratedNames[0] ?? "Série axe gauche";
+        const rightLegend = decoratedNames[1] ?? "Série axe droit";
+        attrs.name = JSON.stringify([leftLegend, rightLegend]);
 
         if (state.unit.trim()) attrs["unit-tooltip-bar"] = state.unit.trim();
         if (state.unitSecondary.trim()) attrs["unit-tooltip-line"] = state.unitSecondary.trim();
@@ -330,9 +334,11 @@ export function buildChartAttributes(state: ChartState): ChartAttributes {
                       return `Secteur ${i + 1}`;
                   })
                 : xLabels.map((_, i) => `Secteur ${i + 1}`);
-        attrs.name = JSON.stringify(sectorLegend.length > 0 ? sectorLegend : ["Secteur"]);
+        const legendNames = uniqueNames(sectorLegend);
+        attrs.name = JSON.stringify(legendNames.length > 0 ? legendNames : ["Secteur"]);
     } else if (series.length > 0) {
-        attrs.name = JSON.stringify(series.map(s => decorateSeriesName(s.name, state.unit)));
+        const legendNames = uniqueNames(series.map(s => decorateName(s.name, state.unit)));
+        attrs.name = JSON.stringify(legendNames.length > 0 ? legendNames : ["Série"]);
     } else {
         attrs.name = JSON.stringify(["Série"]);
     }
@@ -362,14 +368,25 @@ export function buildChartAttributes(state: ChartState): ChartAttributes {
 /**
  * Suffixe l'unité dans le nom de série pour la légende :
  * "Valeur" + "M€" → "Valeur (M€)". Ne fait rien si l'unité est vide ou déjà présente.
- * Libellé vide → « Série » (évite une légende sans texte).
  */
-export function decorateSeriesName(name: string, unit: string): string {
-    const base = name.trim().length > 0 ? name.trim() : "Série";
+function decorateName(name: string, unit: string): string {
     const u = unit.trim();
-    if (u.length === 0) return base;
-    if (base.includes(u)) return base;
-    return `${base} (${u})`;
+    if (u.length === 0) return name;
+    if (name.includes(u)) return name;
+    return `${name} (${u})`;
+}
+
+function uniqueNames(names: string[]): string[] {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const n of names) {
+        const t = n.trim();
+        if (t.length === 0) continue;
+        if (seen.has(t)) continue;
+        seen.add(t);
+        out.push(t);
+    }
+    return out;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -457,7 +474,13 @@ export function buildSrOnlyTable(state: ChartState, computed: ChartAttributes): 
                 ...firstCells,
                 ...computed.series.map(s => {
                     const v = s.values[i];
-                    return `<td>${v === null ? "" : escapeHtml(String(v))}</td>`;
+                    if (v === null) return `<td></td>`;
+                    const u =
+                        s.axis === "right"
+                            ? state.unitSecondary.trim()
+                            : state.unit.trim();
+                    const num = escapeHtml(String(v));
+                    return `<td>${num}${u ? ` ${escapeHtml(u)}` : ""}</td>`;
                 })
             ].join("");
             return `<tr>${cells}</tr>`;
